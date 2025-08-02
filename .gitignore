@@ -1,0 +1,21 @@
+# Python bytecode
+*.py[cod]
+__pycache__/
+
+# Virtual environments
+venv/
+.env/
+
+# Logs and temp
+*.log
+*.tmp
+nohup.out
+
+# OS/IDE files
+.DS_Store
+.idea/
+*.swp
+
+# App-specific cache
+data/
+downloads/
