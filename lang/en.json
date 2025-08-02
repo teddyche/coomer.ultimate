@@ -1,0 +1,13 @@
+{
+  "columns": {
+    "name": "File name",
+    "local_size": "Downloaded",
+    "http_size": "Size",
+    "percent": "%",
+    "status": "Status",
+    "hash_check": "Hash Check",
+    "extension": "Extension",
+    "error": "Error",
+    "url": "URL"
+  }
+}
