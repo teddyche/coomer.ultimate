@@ -52,7 +52,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "799151718922203136_att0",
@@ -106,7 +107,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "798126527903444992_att1",
@@ -124,7 +126,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "798126527903444992_att2",
@@ -142,7 +145,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "797914834334130176_att0",
@@ -160,7 +164,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "797914834334130176_att1",
@@ -178,7 +183,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "797914834334130176_att2",
@@ -196,7 +202,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "789812998263808000_att0",
@@ -279,14 +286,16 @@
       "url": "https://coomer.st/data/31/d6/31d6560ce9bc4c96d935b8186f408266d8c6359836f6ce4d0aa95e3993e9eb90.mp4",
       "size_http": 749231819,
       "cdn_checked": false,
-      "percent": 37,
+      "percent": 15,
       "downloaded": false,
       "retry_count": 1,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 281001984
+      "local_size": 113246208,
+      "speed": "0 B/s",
+      "last_downloaded": 113246208
     },
     {
       "id": "789229007924109313_att0",
@@ -304,7 +313,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "789229007924109313_att1",
@@ -322,7 +332,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "789229007924109313_att2",
@@ -340,7 +351,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "788866884379353088_att0",
@@ -376,7 +388,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "788776213098274816_att0",
@@ -387,14 +400,16 @@
       "url": "https://coomer.st/data/1a/16/1a16df3adb27d17e18a4285bc75c97f47ef6b305a6ed864e9c5854672e51e7ec.mp4",
       "size_http": 1324475915,
       "cdn_checked": false,
-      "percent": 20,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 1,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 276807680
+      "local_size": 20652032,
+      "speed": "0 B/s",
+      "last_downloaded": 20652032
     },
     {
       "id": "788768838538768384_att0",
@@ -412,7 +427,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "788617602283872256_att0",
@@ -459,14 +475,16 @@
       "url": "https://coomer.st/data/24/a3/24a39a14ea9042a0c3bbfa71e54feb9d88cedbee211649bf42eecc3e9cd39a00.mp4",
       "size_http": 727397134,
       "cdn_checked": false,
-      "percent": 30,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 1,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 222199808
+      "local_size": 31875072,
+      "speed": "0 B/s",
+      "last_downloaded": 31875072
     },
     {
       "id": "788421349931491328_att0",
@@ -477,14 +495,16 @@
       "url": "https://coomer.st/data/ec/a3/eca322c982ebaf6e056ff8ba0807450b9c7963861f25c0ef3cd80ee2772fe8de.mp4",
       "size_http": 1421728728,
       "cdn_checked": false,
-      "percent": 20,
+      "percent": 3,
       "downloaded": false,
       "retry_count": 1,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 289857536
+      "local_size": 54534144,
+      "speed": "0 B/s",
+      "last_downloaded": 54534144
     },
     {
       "id": "788328199720280064_att0",
@@ -520,7 +540,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "786305670998667264_att1",
@@ -538,7 +559,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "786305670998667264_att2",
@@ -556,7 +578,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "780008630148673536_att0",
@@ -592,7 +615,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "779097721825927168_att1",
@@ -610,7 +634,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "779097721825927168_att2",
@@ -628,7 +653,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "778675060666802177_att0",
@@ -664,7 +690,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "778668638881198080_att1",
@@ -682,7 +709,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "775199761983610880_att0",
@@ -736,7 +764,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "770533071509266432_att1",
@@ -754,7 +783,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "770533071509266432_att2",
@@ -772,7 +802,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "765130949993181186_att0",
@@ -783,14 +814,16 @@
       "url": "https://coomer.st/data/81/bf/81bf1edcfea6f55727c16f632a5f48bf5dcb451216d42389938ad85201c02541.mp4",
       "size_http": 175065013,
       "cdn_checked": false,
-      "percent": 100,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 1,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 175065013
+      "local_size": 4194304,
+      "speed": "0 B/s",
+      "last_downloaded": 4194304
     },
     {
       "id": "765095002840768512_att0",
@@ -880,7 +913,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "759815156514430976_att0",
@@ -891,14 +925,16 @@
       "url": "https://coomer.st/data/c9/b5/c9b555a6d0178886dcf1c445d98ef103af772c65decc45a5a76861988240df3a.mp4",
       "size_http": 610164511,
       "cdn_checked": false,
-      "percent": 46,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 1,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 282992640
+      "local_size": 6815744,
+      "speed": "0 B/s",
+      "last_downloaded": 6815744
     },
     {
       "id": "758663840702406656_att0",
@@ -909,14 +945,16 @@
       "url": "https://coomer.st/data/2c/ec/2cece02fc41ca59facfbd7b2e8eefc423babfa82ca14e0d0ce61b2f46f46e90d.mp4",
       "size_http": 541970666,
       "cdn_checked": false,
-      "percent": 80,
+      "percent": 1,
       "downloaded": false,
       "retry_count": 1,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 436199424
+      "local_size": 7979008,
+      "speed": "13.3 KB/s",
+      "last_downloaded": 7979008
     },
     {
       "id": "758531802435432448_att0",
@@ -952,7 +990,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "758384340857008128_att1",
@@ -970,7 +1009,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "758384340857008128_att2",
@@ -988,7 +1028,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "758168295672131584_att0",
@@ -1006,7 +1047,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "757623202754076672_att0",
@@ -1042,7 +1084,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "757492453660962816_att0",
@@ -1071,14 +1114,16 @@
       "url": "https://coomer.st/data/b6/1d/b61d258067b281f03ffbbad506af3d1e908b0a32185d2b5ad2314f469cfda0b2.mp4",
       "size_http": 795810226,
       "cdn_checked": false,
-      "percent": 33,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 1,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 268435456
+      "local_size": 5185536,
+      "speed": "0 B/s",
+      "last_downloaded": 5185536
     },
     {
       "id": "757286012421414912_att0",
@@ -1114,7 +1159,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "756982114724884480_att0",
@@ -1197,14 +1243,16 @@
       "url": "https://coomer.st/data/99/60/99606681548596a7e8f3bac8d3c25e030dff6adf60a3a72d8cac16e23fcc9cbb.mp4",
       "size_http": 403263789,
       "cdn_checked": false,
-      "percent": 93,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 1,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 377405440
+      "local_size": 131072,
+      "speed": "1.3 KB/s",
+      "last_downloaded": 131072
     },
     {
       "id": "756422272721362944_att0",
@@ -1222,7 +1270,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "756212857057587200_att0",
@@ -1276,7 +1325,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "755846886996320256_att1",
@@ -1294,7 +1344,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "755846886996320256_att2",
@@ -1312,7 +1363,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "755458980934856704_att0",
@@ -1366,7 +1418,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "754401998589140992_att0",
@@ -1384,7 +1437,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "754401998589140992_att1",
@@ -1402,7 +1456,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "754401998589140992_att2",
@@ -1420,7 +1475,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "754364346347298816_att0",
@@ -1474,7 +1530,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "754050881980211200_att1",
@@ -1492,7 +1549,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "754050881980211200_att2",
@@ -1510,7 +1568,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "754050881980211200_att3",
@@ -1528,7 +1587,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "754018135400521728_att0",
@@ -1564,7 +1624,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "753465822449512448_att0",
@@ -1636,7 +1697,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "753257929859149824_att1",
@@ -1654,7 +1716,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "753257929859149824_att2",
@@ -1672,7 +1735,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "753257929859149824_att3",
@@ -1690,7 +1754,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "753085916767072256_att0",
@@ -1744,7 +1809,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "752915763559407617_att1",
@@ -1762,7 +1828,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "752915763559407617_att2",
@@ -1780,7 +1847,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "752915763559407617_att3",
@@ -1798,7 +1866,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "752911477265936384_att0",
@@ -1816,7 +1885,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "752911477265936384_att1",
@@ -1834,7 +1904,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "752911477265936384_att2",
@@ -1852,7 +1923,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "752911477265936384_att3",
@@ -1870,7 +1942,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "752398552059092993_att0",
@@ -1906,7 +1979,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "752238683574251521_att0",
@@ -1935,14 +2009,15 @@
       "url": "https://coomer.st/data/b2/e2/b2e27cc91c029cfe8e4dc5f1a092e19cb53e003ca470f52f3184eb027e8d040a.mp4",
       "size_http": 356754662,
       "cdn_checked": false,
-      "percent": 69,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 1,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 247463936
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "751882080610164737_att0",
@@ -1960,7 +2035,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "751882080610164737_att1",
@@ -1978,7 +2054,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "751882080610164737_att2",
@@ -1996,7 +2073,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "751882080610164737_att3",
@@ -2014,7 +2092,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "751829015223873536_att0",
@@ -2032,7 +2111,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "751829015223873536_att1",
@@ -2104,7 +2184,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "751534001361006592_att0",
@@ -2122,7 +2203,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "751534001361006592_att1",
@@ -2140,7 +2222,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "751534001361006592_att2",
@@ -2158,7 +2241,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "751102825211109376_att0",
@@ -2194,7 +2278,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "750833383927459840_att1",
@@ -2212,7 +2297,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "750437133256237056_att0",
@@ -2284,7 +2370,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749905544533254145_att1",
@@ -2302,7 +2389,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749905544533254145_att2",
@@ -2320,7 +2408,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749565967662587904_att0",
@@ -2356,7 +2445,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749563735131041792_att1",
@@ -2374,7 +2464,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749563735131041792_att2",
@@ -2392,7 +2483,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749563735131041792_att3",
@@ -2410,7 +2502,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749478534774267905_att0",
@@ -2428,7 +2521,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749319918654074880_att0",
@@ -2464,7 +2558,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749171663723044865_att1",
@@ -2482,7 +2577,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749171663723044865_att2",
@@ -2500,7 +2596,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749171663723044865_att3",
@@ -2518,7 +2615,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749167011493322752_att0",
@@ -2554,7 +2652,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749165605348712448_att1",
@@ -2572,7 +2671,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749165605348712448_att2",
@@ -2590,7 +2690,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "749165605348712448_att3",
@@ -2608,7 +2709,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "748652285789216768_att0",
@@ -2680,7 +2782,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "748319093651677185_att1",
@@ -2698,7 +2801,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "748319093651677185_att2",
@@ -2716,7 +2820,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "748319093651677185_att3",
@@ -2734,7 +2839,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "748319093651677185_att4",
@@ -2752,7 +2858,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "747875496871604224_att0",
@@ -2770,7 +2877,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "747875496871604224_att1",
@@ -2788,7 +2896,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "747875496871604224_att2",
@@ -2806,7 +2915,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "747875496871604224_att3",
@@ -2824,7 +2934,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "747875496871604224_att4",
@@ -2842,7 +2953,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "747648016504070144_att0",
@@ -2860,7 +2972,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "747648016504070144_att1",
@@ -2878,7 +2991,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "747648016504070144_att2",
@@ -2896,7 +3010,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "747648016504070144_att3",
@@ -2914,7 +3029,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "747461489987694592_att0",
@@ -2968,7 +3084,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "746829010838761473_att1",
@@ -2986,7 +3103,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "746237522081755136_att0",
@@ -3058,7 +3176,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "745123501408526336_att1",
@@ -3076,7 +3195,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "745123501408526336_att2",
@@ -3094,7 +3214,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "745123501408526336_att3",
@@ -3112,7 +3233,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "744980084829462528_att0",
@@ -3148,7 +3270,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "744706066721288192_att1",
@@ -3166,7 +3289,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "744398724381290498_att0",
@@ -3202,7 +3326,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "742627151706075136_att1",
@@ -3220,7 +3345,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "742051320625639425_att0",
@@ -3231,14 +3357,16 @@
       "url": "https://coomer.st/data/b4/87/b4877aa4d03d60f2fbfee69769dd8f44ca2ffa8c31f061a42575fe1b6814c1a5.mp4",
       "size_http": 696605586,
       "cdn_checked": false,
-      "percent": 30,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 0,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 213901312
+      "local_size": 14688256,
+      "speed": "0 B/s",
+      "last_downloaded": 14688256
     },
     {
       "id": "741925212047552512_att0",
@@ -3274,7 +3402,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "741695587778310144_att1",
@@ -3292,7 +3421,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "741695587778310144_att2",
@@ -3310,7 +3440,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "741695587778310144_att3",
@@ -3328,7 +3459,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "741695587778310144_att4",
@@ -3346,7 +3478,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "741567250103803904_att0",
@@ -3393,14 +3526,16 @@
       "url": "https://coomer.st/data/96/aa/96aa2beab2a442ae1a0f1d92b77dd562a18f8a8a2fca3e4d4919e7070437dda1.mp4",
       "size_http": 553024648,
       "cdn_checked": false,
-      "percent": 43,
+      "percent": 1,
       "downloaded": false,
       "retry_count": 0,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 238231552
+      "local_size": 8396800,
+      "speed": "0 B/s",
+      "last_downloaded": 8396800
     },
     {
       "id": "740660978831597568_att0",
@@ -3436,7 +3571,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "740555795128655872_att1",
@@ -3454,7 +3590,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "740555795128655872_att2",
@@ -3472,7 +3609,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "740555795128655872_att3",
@@ -3490,7 +3628,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "740421712176230400_att0",
@@ -3577,10 +3716,12 @@
       "downloaded": false,
       "retry_count": 0,
       "error": "",
-      "status": "Downloading",
+      "status": "Completed",
       "type": "video",
       "hash_check": "",
-      "local_size": 6010288
+      "local_size": 6010288,
+      "speed": "0 B/s",
+      "last_downloaded": 6010288
     },
     {
       "id": "739928028527730689_att0",
@@ -3634,7 +3775,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "739723060369698816_att1",
@@ -3652,7 +3794,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "739723060369698816_att2",
@@ -3670,7 +3813,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "739723060369698816_att3",
@@ -3688,7 +3832,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "739723060369698816_att4",
@@ -3706,7 +3851,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "738344572228214784_att0",
@@ -3760,7 +3906,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "738094899500425216_att1",
@@ -3778,7 +3925,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "738094899500425216_att2",
@@ -3796,7 +3944,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "738094899500425216_att3",
@@ -3814,7 +3963,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "737727864148865024_att0",
@@ -3832,7 +3982,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "737727864148865024_att1",
@@ -3850,7 +4001,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "737727864148865024_att2",
@@ -3868,7 +4020,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "737727864148865024_att3",
@@ -3886,7 +4039,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "736912390200766464_att0",
@@ -3922,7 +4076,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "736903893966921728_att1",
@@ -3940,7 +4095,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "736903893966921728_att2",
@@ -3958,7 +4114,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "736903893966921728_att3",
@@ -3976,7 +4133,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "730174846087999488_att0",
@@ -4012,7 +4170,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "729769913496907776_att1",
@@ -4030,7 +4189,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "729769913496907776_att2",
@@ -4048,7 +4208,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "729769913496907776_att3",
@@ -4066,7 +4227,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "729769913496907776_att4",
@@ -4084,7 +4246,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "729241540156731393_att0",
@@ -4120,7 +4283,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "729026061458747392_att0",
@@ -4138,7 +4302,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "729026061458747392_att1",
@@ -4156,7 +4321,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "729026061458747392_att2",
@@ -4174,7 +4340,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "729026061458747392_att3",
@@ -4192,7 +4359,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "729026061458747392_att4",
@@ -4210,7 +4378,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "723402719108280320_att0",
@@ -4264,7 +4433,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "723017756768739329_att3",
@@ -4282,7 +4452,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "722866743441108992_att0",
@@ -4318,7 +4489,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "722672362381647872_att0",
@@ -4354,7 +4526,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "722187373269491712_att0",
@@ -4372,7 +4545,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "722187373269491712_att1",
@@ -4390,7 +4564,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "722187373269491712_att2",
@@ -4408,7 +4583,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "722187373269491712_att3",
@@ -4426,7 +4602,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "722187373269491712_att4",
@@ -4444,7 +4621,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "722187373269491712_att5",
@@ -4462,7 +4640,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "722008805046493184_att0",
@@ -4473,14 +4652,16 @@
       "url": "https://coomer.st/data/b3/9a/b39a0ec6d6e4dc6db0a8d148672a8d7c58da433844eb10a8b343e7e819d3bf6f.mp4",
       "size_http": 175683683,
       "cdn_checked": false,
-      "percent": 54,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 0,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 96378880
+      "local_size": 6897664,
+      "speed": "0 B/s",
+      "last_downloaded": 6897664
     },
     {
       "id": "721980434258337792_att0",
@@ -4498,7 +4679,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "721980434258337792_att1",
@@ -4516,7 +4698,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "721980434258337792_att2",
@@ -4534,7 +4717,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "721980434258337792_att3",
@@ -4552,7 +4736,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "721980434258337792_att4",
@@ -4570,7 +4755,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "720299993155514369_att0",
@@ -4588,7 +4774,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "720299993155514369_att1",
@@ -4606,7 +4793,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "720299993155514369_att2",
@@ -4624,7 +4812,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "720299993155514369_att3",
@@ -4642,7 +4831,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "720299993155514369_att4",
@@ -4660,7 +4850,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "720299993155514369_att5",
@@ -4678,7 +4869,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "720299993155514369_att6",
@@ -4696,7 +4888,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "718624522311315456_att0",
@@ -4707,14 +4900,16 @@
       "url": "https://coomer.st/data/ab/c8/abc8547813a473d0462c418b1901ef6c4e885874c3b99be43741694d4748985a.mp4",
       "size_http": 200228859,
       "cdn_checked": false,
-      "percent": 30,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 0,
-      "error": "",
-      "status": "Downloading",
+      "error": "\u00c9chec complet sur tous les CDN",
+      "status": "Failed",
       "type": "video",
       "hash_check": "",
-      "local_size": 61636608
+      "local_size": 4194304,
+      "speed": "0 B/s",
+      "last_downloaded": 4194304
     },
     {
       "id": "718443262381142016_att0",
@@ -4768,7 +4963,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "718345987961139202_att2",
@@ -4786,7 +4982,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "718345987961139202_att3",
@@ -4804,7 +5001,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "718037921323560961_att0",
@@ -4840,7 +5038,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "717737347185127425_att1",
@@ -4858,7 +5057,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "717737347185127425_att2",
@@ -4876,7 +5076,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "717737347185127425_att3",
@@ -4894,7 +5095,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "717536543249543169_att0",
@@ -4912,7 +5114,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "717536543249543169_att1",
@@ -4930,7 +5133,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "717214430143721476_att0",
@@ -4948,7 +5152,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "717203299710808064_att0",
@@ -4959,14 +5164,16 @@
       "url": "https://coomer.st/data/fc/d1/fcd1de7ee705976b6c2e683be9102b66400643964152becbcb9e6945089251da.mp4",
       "size_http": 1051028689,
       "cdn_checked": false,
-      "percent": 6,
+      "percent": 1,
       "downloaded": false,
       "retry_count": 0,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 71303168
+      "local_size": 20963328,
+      "speed": "0 B/s",
+      "last_downloaded": 20963328
     },
     {
       "id": "712880810834800641_att0",
@@ -4984,7 +5191,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "712880810834800641_att1",
@@ -5002,7 +5210,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "712510765973647361_att0",
@@ -5038,7 +5247,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "712039395078713345_att1",
@@ -5056,7 +5266,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "712039395078713345_att2",
@@ -5074,7 +5285,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "711798938197307396_att0",
@@ -5110,7 +5322,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "711786475657633792_att1",
@@ -5128,7 +5341,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "711492979042295808_att0",
@@ -5146,7 +5360,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "711492979042295808_att1",
@@ -5164,7 +5379,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "711492979042295808_att2",
@@ -5182,7 +5398,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "711492979042295808_att3",
@@ -5200,7 +5417,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "711492979042295808_att4",
@@ -5218,7 +5436,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "711492979042295808_att5",
@@ -5236,7 +5455,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "711492979042295808_att6",
@@ -5254,7 +5474,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "711169114667753472_att0",
@@ -5272,7 +5493,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "711138051249680384_att0",
@@ -5308,7 +5530,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "710876837961543680_att1",
@@ -5326,7 +5549,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "710876837961543680_att2",
@@ -5344,7 +5568,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "710876837961543680_att3",
@@ -5362,7 +5587,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "710876837961543680_att4",
@@ -5380,7 +5606,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "710876837961543680_att5",
@@ -5398,7 +5625,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "710876837961543680_att6",
@@ -5416,7 +5644,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "710840701629243393_att0",
@@ -5427,14 +5656,16 @@
       "url": "https://coomer.st/data/0d/99/0d995dfa51239582b6a2b31a09bf66e7e2ec1013c685e688e6f2bb19dba55a5f.mp4",
       "size_http": 1002704548,
       "cdn_checked": false,
-      "percent": 24,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 0,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 244432896
+      "local_size": 11943936,
+      "speed": "0 B/s",
+      "last_downloaded": 11943936
     },
     {
       "id": "710581305309409284_att0",
@@ -5481,14 +5712,16 @@
       "url": "https://coomer.st/data/ea/c0/eac07790082d0cacd060e6308cf484778b6422aac749f3b1ebfb974b1ce90263.mp4",
       "size_http": 1958647270,
       "cdn_checked": false,
-      "percent": 10,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 0,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 214032384
+      "local_size": 25165824,
+      "speed": "0 B/s",
+      "last_downloaded": 25165824
     },
     {
       "id": "709912125065146369_att0",
@@ -5506,7 +5739,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "709912125065146369_att1",
@@ -5524,7 +5758,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "709296302634053633_att0",
@@ -5542,7 +5777,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "709296302634053633_att1",
@@ -5560,7 +5796,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "709296302634053633_att2",
@@ -5578,7 +5815,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "709296302634053633_att3",
@@ -5596,7 +5834,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "709296302634053633_att4",
@@ -5614,7 +5853,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "709296302634053633_att5",
@@ -5632,7 +5872,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "708964463654477824_att0",
@@ -5650,7 +5891,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "708964463654477824_att2",
@@ -5668,7 +5910,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "708964463654477824_att3",
@@ -5686,7 +5929,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "708964463654477824_att4",
@@ -5704,7 +5948,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "707075129468792832_att0",
@@ -5722,7 +5967,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "707075129468792832_att1",
@@ -5740,7 +5986,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "707075129468792832_att2",
@@ -5758,7 +6005,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "707075129468792832_att3",
@@ -5776,7 +6024,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "706260646546644992_att0",
@@ -5812,7 +6061,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "705890184465494016_att1",
@@ -5830,7 +6080,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "705890184465494016_att2",
@@ -5848,7 +6099,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "705890184465494016_att3",
@@ -5866,7 +6118,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "705890184465494016_att4",
@@ -5884,7 +6137,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "705346427110305792_att0",
@@ -5920,7 +6174,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "705027460118360065_att1",
@@ -5938,7 +6193,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "704772584717168641_att0",
@@ -6003,14 +6259,16 @@
       "url": "https://coomer.st/data/24/6d/246d4044af0fc16531a416669d2532e8b51c31a1c15cc4a05ef794a6e4a54638.mp4",
       "size_http": 100683348,
       "cdn_checked": false,
-      "percent": 100,
+      "percent": 8,
       "downloaded": false,
       "retry_count": 0,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 100683348
+      "local_size": 8994816,
+      "speed": "0 B/s",
+      "last_downloaded": 8994816
     },
     {
       "id": "702600917379198976_att0",
@@ -6046,7 +6304,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "702213379237879808_att1",
@@ -6064,7 +6323,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "702213379237879808_att2",
@@ -6082,7 +6342,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "702213379237879808_att3",
@@ -6100,7 +6361,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "702213379237879808_att4",
@@ -6118,7 +6380,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "702213379237879808_att5",
@@ -6136,7 +6399,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "701294300582916097_att0",
@@ -6154,7 +6418,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "701294300582916097_att1",
@@ -6172,7 +6437,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "701294300582916097_att2",
@@ -6190,7 +6456,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "700353273122533376_att0",
@@ -6201,14 +6468,16 @@
       "url": "https://coomer.st/data/c5/1a/c51a87d8053b2f5e6199db1fd4d812c6335a8efd3137135033c3f67b7a1dc379.mp4",
       "size_http": 477827509,
       "cdn_checked": false,
-      "percent": 43,
+      "percent": 17,
       "downloaded": false,
       "retry_count": 0,
-      "error": "",
+      "error": "\u00c9chec complet sur tous les CDN",
       "status": "Downloading",
       "type": "video",
       "hash_check": "",
-      "local_size": 209715200
+      "local_size": 84795392,
+      "speed": "462.7 B/s",
+      "last_downloaded": 84795392
     },
     {
       "id": "699953811485106176_att0",
@@ -6219,14 +6488,16 @@
       "url": "https://coomer.st/data/f4/33/f43328a71ad2810c95e165f067851e050749a4cf3deca91c39335ce2d26f4e16.mp4",
       "size_http": 980466593,
       "cdn_checked": false,
-      "percent": 7,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 0,
-      "error": "",
-      "status": "Downloading",
+      "error": "Thread timed out",
+      "status": "Failed",
       "type": "video",
       "hash_check": "",
-      "local_size": 75497472
+      "local_size": 6668288,
+      "speed": "0 B/s",
+      "last_downloaded": 6668288
     },
     {
       "id": "699685349890203648_att0",
@@ -6244,7 +6515,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "699685349890203648_att1",
@@ -6262,7 +6534,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "699557317753974785_att0",
@@ -6273,14 +6546,16 @@
       "url": "https://coomer.st/data/52/79/52794475fe185f3c10eb13af3cf9701656160f8006766add5d1962febb4f7c84.mp4",
       "size_http": 188636361,
       "cdn_checked": false,
-      "percent": 40,
+      "percent": 0,
       "downloaded": false,
       "retry_count": 0,
-      "error": "",
-      "status": "Downloading",
+      "error": "Thread timed out",
+      "status": "Failed",
       "type": "video",
       "hash_check": "",
-      "local_size": 75489280
+      "local_size": 8192,
+      "speed": "0 B/s",
+      "last_downloaded": 8192
     },
     {
       "id": "699357124098007040_att0",
@@ -6298,7 +6573,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "699357124098007040_att1",
@@ -6316,7 +6592,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "699357124098007040_att2",
@@ -6334,7 +6611,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "699357124098007040_att3",
@@ -6352,7 +6630,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "697219668993122304_att0",
@@ -6370,7 +6649,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "697219668993122304_att1",
@@ -6388,7 +6668,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "697219668993122304_att2",
@@ -6406,7 +6687,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "697219668993122304_att3",
@@ -6424,7 +6706,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     },
     {
       "id": "697219668993122304_att4",
@@ -6442,7 +6725,8 @@
       "status": "Missing",
       "type": "image",
       "hash_check": "",
-      "local_size": 0
+      "local_size": 0,
+      "speed": "0 B/s"
     }
   ],
   "last_update": "2025-07-27T22:06:57.622712+00:00",

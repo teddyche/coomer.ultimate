@@ -1,37 +1,93 @@
+# media_window.py
+# === Standard library ===
 import os
-import json
-import threading
 import sys
-import tkinter as tk
-from tkinter import ttk, messagebox
-import webbrowser
-import requests
-from urllib.parse import urlparse
-from downloader import download_file, build_media_url, generate_alternative_urls
-from utils import fetch_medias_from_api, get_remote_file_size, verify_hash_from_cdn_path, format_bytes, sha256_file, extract_profile_info, is_video
-from media_utils import is_valid_image, is_valid_video
-from log import log_info, log_error, log_warning
-import subprocess
+import json
 import time
-from datetime import datetime
-import hashlib
-from event_bus import event_bus
-from tkinter import filedialog
-from utils import detect_type_from_name, render_progress_bar
-from threading import Lock
-from concurrent.futures import ThreadPoolExecutor
 import uuid
+import threading
+from threading import Lock
 
-GLOBAL_RUNNING_DOWNLOADS = 0
-GLOBAL_DOWNLOAD_LOCK = threading.Lock()
-GLOBAL_MAX_CONCURRENT_DOWNLOADS = 20  # Limite globale pour toutes les fenêtres
+import subprocess
+import tkinter as tk
+from tkinter import messagebox, filedialog
 
-CDN_NODES = ["n1", "n2", "n3", "n4"]
-MAX_CONCURRENT_DOWNLOADS = 20
-download_queue = []
-running_downloads = 0
-is_downloading_all = False
+# === Retry constants (hard-coded for now) ===
+RETRY_DELAY_SECONDS = 10
+MAX_FAILED_RETRIES = 10
+
+from collections import defaultdict
+from contextlib import contextmanager
+
+# === Third-party libraries ===
+import requests
+
+# === Local application imports ===
+from core.download_manager import DownloadManager
+from core.restore_service import RestoreService
+from event_bus import event_bus
+from log import log_info, log_error, log_warning
+from media_utils import is_valid_image, is_valid_video
+from ui.media_window import MediaWindowUI
+from core.executor import submit_unique
+from core.limits import GLOBAL_SEM, window_sem
+from utils.format_utils import format_bytes, render_progress_bar
+from utils.network_utils import get_remote_file_size, verify_hash_from_cdn_path, generate_alternative_urls
+from utils.media_utils import detect_type_from_name, is_video
+from utils.file_utils import sha256_file
+from queue import Queue
+
+
+class DownloadConcurrencyController:
+    def __init__(self, max_workers: int, name: str = "dlpool"):
+        self.q = Queue()
+        self.stop_evt = threading.Event()
+        self.workers = []
+        self.name = name
+        for i in range(max_workers):
+            t = threading.Thread(target=self._worker, daemon=True, name=f"worker_{i}")
+            t.start()
+            self.workers.append(t)
+
+    def _worker(self):
+        while not self.stop_evt.is_set():
+            try:
+                job = self.q.get(timeout=0.5)
+            except Exception:
+                continue
+            try:
+                job()
+            finally:
+                self.q.task_done()
+
+    def enqueue(self, job):
+        self.q.put(job)
+
+    def shutdown(self, wait=False):
+        self.stop_evt.set()
+        if wait:
+            # drainer proprement
+            for _ in self.workers:
+                self.q.put(lambda: None)
+            for t in self.workers:
+                try:
+                    t.join(timeout=2)
+                except Exception:
+                    pass
+
+# === Retry constants (hard-coded for now) ===
+RETRY_DELAY_SECONDS = 10          # délai de base entre tentatives internes
+INTERNAL_MAX_RETRIES_DEFAULT = 3  # ← AU LIEU de 1 : ré-essaie 3 fois par défaut
+INTERNAL_BACKOFF_FACTOR = 2.0     # backoff expo : 10s, 20s, 40s...
+
+# Quand toutes les tentatives internes échouent, on place le média en Failed,
+# puis on le re-enqueue automatiquement jusqu’à cette limite « externe ».
+EXTERNAL_RETRY_LIMIT = 10         # 10 relances max par média à travers le temps
+EXTERNAL_RETRY_DELAY_SECONDS = 15 # délai avant requeue après un Failed final
+
+MAX_CONCURRENT_DOWNLOADS = 25
 queue_lock = threading.Lock()
+
 
 class MediaWindow:
     def __init__(self, root, service, username, local_dir, json_path, medias_data):
@@ -39,229 +95,70 @@ class MediaWindow:
         self.download_queue = []  # File d'attente spécifique à l'instance
         self.running_downloads = 0  # Compteur spécifique à l'instance
         self.queue_processor_running = True  # Contrôle du queue_processor
+        self.ctrl = DownloadConcurrencyController(MAX_CONCURRENT_DOWNLOADS, name=f"pool:{self.window_id[:4]}")
+        self.tree_item_keys = defaultdict(set)
+        self.last_ui_update = {}
         self.root = root
         self.service = service
         self.username = str(username)
         self.json_path = json_path
         self.medias_data = medias_data
         self.medias = medias_data.get("medias", [])
+
+        # --- Boot pipeline & guards ---
+        self._booting = True  # tant que True, on ne touche pas l’UI
+        self._suppress_events = True  # ignore les events bus pendant le boot
+        self._initial_render_done = False  # garantit une seule insertion initiale
+        self._restore_done = threading.Event()
+
+        self._after_ids = set()
+        self._after_lock = Lock()
+
         self.is_active = True
         self.is_closing = False
         self.restoring = True
         self.restore_progress_running = True
+        self.ui_ready = threading.Event()
+
         self.profile_key = f"{service}:{self.username}"
         self.last_sorted_column = None
         self.sort_reverse = False
         self.item_id_cache = {}
         self.last_tagged = {}
-        self.root.title(f"Coomer Ultimate v1.0 – {username} ({service})")
+        # Auto-sort flags
+        self._auto_sort_enabled = False
+        self._suspend_sorting = False
+
+        # watchdog de queue
+        self._monitor_stop = threading.Event()
         self.monitor_queue()
-        self.save_lock = Lock()  # Verrou pour le JSON
+
+        # Verrou JSON + settings globaux
+        self.save_lock = Lock()
         self.load_global_settings()
         self.global_settings = getattr(self, "global_settings", {})
+
+        # Dossiers
         self.download_dir = self.global_settings.get("download_dir", "downloads")
         self.profile_download_dirs = self.global_settings.get("profile_dirs", {})
         base_dir = self.profile_download_dirs.get(self.profile_key, self.download_dir)
+
         self.local_dir = os.path.abspath(os.path.join(base_dir, self.service, self.username))
         self.video_dir = os.path.join(self.local_dir, "v")
         self.image_dir = os.path.join(self.local_dir, "p")
+
         os.makedirs(self.video_dir, exist_ok=True)
         os.makedirs(self.image_dir, exist_ok=True)
         os.makedirs(self.local_dir, exist_ok=True)
-        log_info(f"[INIT] Fenêtre {self.window_id} pour {self.profile_key} → {self.local_dir}")
 
+        log_info(f"[INIT] Fenêtre {self.window_id} pour {self.profile_key} → {self.local_dir}")
         print(f"[DEBUG] Loaded {len(self.medias)} medias for {self.profile_key}")
 
-        # Modern theme
-        style = ttk.Style()
-        style.theme_use("clam")
-        style.configure("Treeview", 
-                        background="#2b2b2b", 
-                        foreground="#ffffff", 
-                        fieldbackground="#2b2b2b", 
-                        rowheight=28,
-                        font=("Segoe UI", 10))
-        style.configure("Treeview.Heading", 
-                        background="#3c3f41", 
-                        foreground="#ffffff", 
-                        font=("Segoe UI", 10, "bold"))
-        style.map("Treeview.Heading",
-                  background=[("active", "#4a4d4f")])
-        style.configure("TLabel", background="#252526", foreground="#ffffff", font=("Segoe UI", 10))
-        style.configure("TFrame", background="#252526")
-        style.configure("TRadiobutton", background="#252526", foreground="#ffffff", font=("Segoe UI", 10))
-        style.configure("TCheckbutton", background="#252526", foreground="#ffffff", font=("Segoe UI", 10))
-        style.configure("TButton", background="#3c3f41", foreground="#ffffff", font=("Segoe UI", 10))
+        # =========================================================
+        #                ⬇️  UI DÉLÉGUÉE À MediaWindowUI  ⬇️
+        # =========================================================
 
-        # Main frame
-        main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        # Notebook principal pour Vidéos/Photos
-        self.notebook = ttk.Notebook(main_frame)
-        self.notebook.pack(fill=tk.BOTH, expand=True)
-
-        # Onglet Vidéos
-        self.video_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.video_frame, text="Vidéos")
-        self.video_notebook = ttk.Notebook(self.video_frame)
-        self.video_notebook.pack(fill=tk.BOTH, expand=True)
-
-        # Vidéos: Not Downloaded
-        self.video_not_downloaded_frame = ttk.Frame(self.video_notebook)
-        self.video_notebook.add(self.video_not_downloaded_frame, text="Not Downloaded")
-        video_nd_button_frame = ttk.Frame(self.video_not_downloaded_frame)
-        video_nd_button_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(video_nd_button_frame, text="DOWNLOAD ALL", command=lambda: self.download_all_not_downloaded("video")).pack(side=tk.LEFT, padx=5)
-        ttk.Button(video_nd_button_frame, text="DOWNLOAD", command=self.download_selected_file).pack(side=tk.LEFT, padx=5)
-        ttk.Button(video_nd_button_frame, text="PAUSE", command=lambda: self.pause_downloads("video")).pack(side=tk.LEFT, padx=5)
-        ttk.Button(video_nd_button_frame, text="IGNORE", command=self.ignore_selected_file).pack(side=tk.LEFT, padx=5)
-        ttk.Button(video_nd_button_frame, text="OPEN FOLDER", command=self.open_video_folder).pack(side=tk.LEFT, padx=5)
-        ttk.Button(video_nd_button_frame, text="CHECKSUM", command=self.check_sha256_all_video_not_downloaded).pack(side=tk.LEFT, padx=5)
-        ttk.Button(video_nd_button_frame, text="GET SIZES", command=lambda: self.get_all_sizes_thread(media_type="video")).pack(side=tk.LEFT, padx=5)
-        self.video_not_downloaded_tree = ttk.Treeview(
-            self.video_not_downloaded_frame,
-            columns=("name", "local_size", "http_size", "percent", "speed", "status", "checksum", "type", "url", "error", "retry_count", "hash_check"),
-            show="headings",
-            style="Treeview"
-        )
-        video_nd_vsb = ttk.Scrollbar(self.video_not_downloaded_frame, orient="vertical", command=self.video_not_downloaded_tree.yview)
-        video_nd_hsb = ttk.Scrollbar(self.video_not_downloaded_frame, orient="horizontal", command=self.video_not_downloaded_tree.xview)
-        self.video_not_downloaded_tree.configure(yscrollcommand=video_nd_vsb.set, xscrollcommand=video_nd_hsb.set)
-        video_nd_vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        video_nd_hsb.pack(side=tk.BOTTOM, fill=tk.X)
-        self.video_not_downloaded_tree.heading("name", text="Nom")
-        self.video_not_downloaded_tree.heading("local_size", text="Taille locale")
-        self.video_not_downloaded_tree.heading("http_size", text="Taille HTTP")
-        self.video_not_downloaded_tree.heading("percent", text="Pourcentage")
-        self.video_not_downloaded_tree.heading("speed", text="Vitesse")  # Nouvelle colonne
-        self.video_not_downloaded_tree.heading("status", text="Statut")
-        self.video_not_downloaded_tree.heading("checksum", text="Checksum")
-        self.video_not_downloaded_tree.heading("type", text="Type")
-        self.video_not_downloaded_tree.heading("url", text="URL")
-        self.video_not_downloaded_tree.heading("error", text="Erreur")
-        self.video_not_downloaded_tree.heading("retry_count", text="Tentatives")
-        self.video_not_downloaded_tree.heading("hash_check", text="Vérif. Hash")
-        self.video_not_downloaded_tree.column("name", width=250)
-        self.video_not_downloaded_tree.column("local_size", width=150)
-        self.video_not_downloaded_tree.column("http_size", width=150)
-        self.video_not_downloaded_tree.column("percent", width=200)
-        self.video_not_downloaded_tree.column("status", width=100)
-        self.video_not_downloaded_tree.column("checksum", width=100)
-        self.video_not_downloaded_tree.column("type", width=100)
-        self.video_not_downloaded_tree.column("url", width=250)
-        self.video_not_downloaded_tree.column("error", width=200)
-        self.video_not_downloaded_tree.column("retry_count", width=80)
-        self.video_not_downloaded_tree.column("hash_check", width=100)
-        self.video_not_downloaded_tree.column("speed", width=100)  # Largeur pour la vitesse
-        self.video_not_downloaded_tree.pack(fill=tk.BOTH, expand=True)
-
-        # Vidéos: Completed
-        self.video_completed_frame = ttk.Frame(self.video_notebook)
-        self.video_notebook.add(self.video_completed_frame, text="Completed")
-        video_c_button_frame = ttk.Frame(self.video_completed_frame)
-        video_c_button_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(video_c_button_frame, text="CHECK FILES", command=lambda: self.check_all_completed_files("video")).pack(side=tk.LEFT, padx=5)
-        ttk.Button(video_c_button_frame, text="IGNORE", command=self.ignore_selected_file).pack(side=tk.LEFT, padx=5)
-        ttk.Button(video_c_button_frame, text="OPEN FOLDER", command=self.open_video_folder).pack(side=tk.LEFT, padx=5)
-        ttk.Button(video_c_button_frame, text="CHECKSUM", command=self.check_sha256_all_video_not_downloaded).pack(side=tk.LEFT, padx=5)
-        self.video_completed_tree = ttk.Treeview(
-            self.video_completed_frame,
-            columns=("name", "local_size", "http_size", "percent", "status", "checksum", "type", "url", "error", "retry_count", "hash_check"),
-            show="headings",
-            style="Treeview"
-        )
-        video_c_vsb = ttk.Scrollbar(self.video_completed_frame, orient="vertical", command=self.video_completed_tree.yview)
-        video_c_hsb = ttk.Scrollbar(self.video_completed_frame, orient="horizontal", command=self.video_completed_tree.xview)
-        self.video_completed_tree.configure(yscrollcommand=video_c_vsb.set, xscrollcommand=video_c_hsb.set)
-        video_c_vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        video_c_hsb.pack(side=tk.BOTTOM, fill=tk.X)
-        self.video_completed_tree.pack(fill=tk.BOTH, expand=True)
-
-        # Onglet Photos
-        self.image_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.image_frame, text="Photos")
-        self.image_notebook = ttk.Notebook(self.image_frame)
-        self.image_notebook.pack(fill=tk.BOTH, expand=True)
-
-        # Suivre les Treeview chargés
-        self.loaded_treeviews = {"video_not_downloaded": True}
-
-        # Binding pour les changements d'onglet dans video_notebook
-        self.video_notebook.bind("<<NotebookTabChanged>>", self.on_video_notebook_tab_changed)
-
-        # Binding pour les changements d'onglet dans image_notebook
-        self.image_notebook.bind("<<NotebookTabChanged>>", self.on_image_notebook_tab_changed)
-
-        # Photos: Not Downloaded
-        self.image_not_downloaded_frame = ttk.Frame(self.image_notebook)
-        self.image_notebook.add(self.image_not_downloaded_frame, text="Not Downloaded")
-        image_nd_button_frame = ttk.Frame(self.image_not_downloaded_frame)
-        image_nd_button_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(image_nd_button_frame, text="DOWNLOAD ALL", command=lambda: self.download_all_not_downloaded("image")).pack(side=tk.LEFT, padx=5)
-        ttk.Button(image_nd_button_frame, text="PAUSE", command=lambda: self.pause_downloads("image")).pack(side=tk.LEFT, padx=5)
-        ttk.Button(image_nd_button_frame, text="IGNORE", command=self.ignore_selected_file).pack(side=tk.LEFT, padx=5)
-        ttk.Button(image_nd_button_frame, text="OPEN FOLDER", command=self.open_image_folder).pack(side=tk.LEFT, padx=5)
-        ttk.Button(image_nd_button_frame, text="CHECKSUM", command=self.check_sha256_all_image_not_downloaded).pack(side=tk.LEFT, padx=5)
-        self.image_not_downloaded_tree = ttk.Treeview(
-            self.image_not_downloaded_frame,
-            columns=("name", "local_size", "http_size", "percent", "speed", "status", "checksum", "type", "url", "error", "retry_count", "hash_check"),
-            show="headings",
-            style="Treeview"
-        )
-        image_nd_vsb = ttk.Scrollbar(self.image_not_downloaded_frame, orient="vertical", command=self.image_not_downloaded_tree.yview)
-        image_nd_hsb = ttk.Scrollbar(self.image_not_downloaded_frame, orient="horizontal", command=self.image_not_downloaded_tree.xview)
-        self.image_not_downloaded_tree.configure(yscrollcommand=image_nd_vsb.set, xscrollcommand=image_nd_hsb.set)
-        image_nd_vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        image_nd_hsb.pack(side=tk.BOTTOM, fill=tk.X)
-        self.image_not_downloaded_tree.heading("name", text="Nom")
-        self.image_not_downloaded_tree.heading("local_size", text="Taille locale")
-        self.image_not_downloaded_tree.heading("http_size", text="Taille HTTP")
-        self.image_not_downloaded_tree.heading("percent", text="Pourcentage")
-        self.image_not_downloaded_tree.heading("speed", text="Vitesse")  # Nouvelle colonne
-        self.image_not_downloaded_tree.heading("status", text="Statut")
-        self.image_not_downloaded_tree.heading("checksum", text="Checksum")
-        self.image_not_downloaded_tree.heading("type", text="Type")
-        self.image_not_downloaded_tree.heading("url", text="URL")
-        self.image_not_downloaded_tree.heading("error", text="Erreur")
-        self.image_not_downloaded_tree.heading("retry_count", text="Tentatives")
-        self.image_not_downloaded_tree.heading("hash_check", text="Vérif. Hash")
-        self.image_not_downloaded_tree.column("name", width=200)
-        self.image_not_downloaded_tree.column("local_size", width=100)
-        self.image_not_downloaded_tree.column("http_size", width=100)
-        self.image_not_downloaded_tree.column("percent", width=100)
-        self.image_not_downloaded_tree.column("status", width=100)
-        self.image_not_downloaded_tree.column("checksum", width=100)
-        self.image_not_downloaded_tree.column("type", width=100)
-        self.image_not_downloaded_tree.column("url", width=250)
-        self.image_not_downloaded_tree.column("error", width=200)
-        self.image_not_downloaded_tree.column("retry_count", width=80)
-        self.image_not_downloaded_tree.column("hash_check", width=100)
-        self.image_not_downloaded_tree.column("speed", width=100)  # Largeur pour la vitesse
-        self.image_not_downloaded_tree.pack(fill=tk.BOTH, expand=True)
-
-        # Photos: Completed
-        self.image_completed_frame = ttk.Frame(self.image_notebook)
-        self.image_notebook.add(self.image_completed_frame, text="Completed")
-        image_c_button_frame = ttk.Frame(self.image_completed_frame)
-        image_c_button_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(image_c_button_frame, text="IGNORE", command=self.ignore_selected_file).pack(side=tk.LEFT, padx=5)
-        ttk.Button(image_c_button_frame, text="OPEN FOLDER", command=self.open_image_folder).pack(side=tk.LEFT, padx=5)
-        ttk.Button(image_c_button_frame, text="CHECKSUM", command=lambda: self.check_all_completed_files("image")).pack(side=tk.LEFT, padx=5)
-        self.image_completed_tree = ttk.Treeview(
-            self.image_completed_frame,
-            columns=("name", "local_size", "http_size", "percent", "status", "checksum", "type", "url", "error", "retry_count", "hash_check"),
-            show="headings",
-            style="Treeview"
-        )
-        image_c_vsb = ttk.Scrollbar(self.image_completed_frame, orient="vertical", command=self.image_completed_tree.yview)
-        image_c_hsb = ttk.Scrollbar(self.image_completed_frame, orient="horizontal", command=self.image_completed_tree.xview)
-        self.image_completed_tree.configure(yscrollcommand=image_c_vsb.set, xscrollcommand=image_c_hsb.set)
-        image_c_vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        image_c_hsb.pack(side=tk.BOTTOM, fill=tk.X)
-        self.image_completed_tree.pack(fill=tk.BOTH, expand=True)
-
-        # Charger les libellés depuis JSON
+        # Libellés multilingues
         try:
             with open("lang/en.json", "r", encoding="utf-8") as f:
                 self.labels = json.load(f)
@@ -269,52 +166,49 @@ class MediaWindow:
             log_error(f"[LANG] Erreur chargement libellés multilangue : {e}")
             self.labels = {"columns": {}}
 
-        # Définir les colonnes modernes
+        # Définition des colonnes modernes
         self.columns = {
-            "not_downloaded": ["name", "local_size", "http_size", "speed", "percent", "status", "hash_check", "extension", "error", "url", "retry_count"],
-            "completed": ["name", "local_size", "http_size", "percent", "status", "hash_check", "extension", "error", "url", "retry_count"]
+            "not_downloaded": ["name", "local_size", "http_size", "speed", "percent",
+                               "status", "hash_check", "extension", "error", "url", "retry_count"],
+            "completed": ["name", "local_size", "http_size", "percent",
+                          "status", "hash_check", "extension", "error", "url", "retry_count"],
         }
         col_widths = {
             "name": 250,
             "local_size": 150,
             "http_size": 150,
-            "speed": 150,  # Colonne speed avant percent
+            "speed": 150,
             "percent": 250,
             "status": 100,
             "hash_check": 100,
             "extension": 100,
             "error": 200,
             "url": 250,
-            "retry_count": 80
+            "retry_count": 80,
         }
 
-        # Appliquer les colonnes en fonction du sous-onglet
-        for tree in [self.video_not_downloaded_tree, self.video_completed_tree,
-                     self.image_not_downloaded_tree, self.image_completed_tree]:
-            subtab = "not_downloaded" if tree in [self.video_not_downloaded_tree, self.image_not_downloaded_tree] else "completed"
-            tree["columns"] = self.columns[subtab]
-            for col in self.columns[subtab]:
-                label = self.labels["columns"].get(col, col.title())
-                width = col_widths.get(col, 100)
-                tree.heading(col, text=label, command=lambda c=col, t=tree: self.sort_column(c, t))
-                tree.column(col, width=width, stretch=True)
+        # Construit toute l’UI (⚠️ ne fait AUCUNE insertion dans les trees)
+        MediaWindowUI(
+            controller=self,
+            root=self.root,
+            service=self.service,
+            username=self.username,
+            labels=self.labels,
+            columns=self.columns,
+            col_widths=col_widths,
+        )
 
-        # Lier le clic droit aux quatre Treeviews
-        for tree, tree_type, subtab in [
-            (self.video_not_downloaded_tree, "video", "not_downloaded"),
-            (self.video_completed_tree, "video", "completed"),
-            (self.image_not_downloaded_tree, "image", "not_downloaded"),
-            (self.image_completed_tree, "image", "completed")
-        ]:
-            tree.bind("<Button-3>", lambda event, tt=tree_type, st=subtab: self.on_right_click(event, tt, st))
+        # Important: au boot, RIEN n’est “déjà chargé”
+        self.loaded_treeviews = {}
 
-        # Filter frame
-        filter_frame = ttk.Frame(main_frame)
-        filter_frame.pack(fill=tk.X, pady=5)
+        self.ui_ready.set()
+        log_info(f"[UI] UI prête pour {self.profile_key}")
 
-        self.media_stats_label = ttk.Label(main_frame, text="")
-        self.media_stats_label.pack(fill=tk.X, pady=5)
+        # =========================================================
+        #                 ⬆️  FIN DU BLOC UI EXTRACTED  ⬆️
+        # =========================================================
 
+        # Filtres de statut (restent côté core)
         self.filter_vars = {
             "Missing": tk.BooleanVar(value=False),
             "Completed": tk.BooleanVar(value=False),
@@ -324,29 +218,259 @@ class MediaWindow:
             "Retrying": tk.BooleanVar(value=False),
             "Failed": tk.BooleanVar(value=False),
             "Incomplete": tk.BooleanVar(value=False),
-            "Paused": tk.BooleanVar(value=False)
+            "Paused": tk.BooleanVar(value=False),
         }
 
+        # Events / hooks fenêtre
         event_bus.subscribe(f"update:{self.profile_key}", self.on_event_update)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        # ===== Pipeline de boot : d'abord RESTORE (sans UI), puis rendu unique =====
+        threading.Thread(target=self._do_restore_phase, daemon=True).start()
+        self.schedule_after(0, self._wait_and_render_initial)
+
+    def _do_restore_phase(self):
+        try:
+            # 1) Snapshot des items ignorés AVANT le restore
+            self._ignored_keys_before_restore = set()
+            for _m in self.medias:
+                if (_m.get("status") or "").strip().lower() == "ignored":
+                    try:
+                        k = self._media_key(_m)
+                    except Exception:
+                        k = _m.get("name")
+                    if k:
+                        self._ignored_keys_before_restore.add(k)
+
+            # 2) Restore depuis le disque (peut écraser des champs)
+            self.restore_progress_from_files(skip_sha256_verify=True)
+
+            # 3) Ré-applique les "Ignored" (signature tolère after/bind)
+            self._reapply_ignored_after_restore()
+
+            # (optionnel) sauvegarde après ré-application
+            try:
+                self.save_json()
+            except Exception as e:
+                log_warning(f"[RESTORE] Sauvegarde post-réapply ignorés a échoué : {e}")
+
+        except Exception as e:
+            log_error(f"[RESTORE] Erreur Restore phase: {e}")
+        finally:
+            # libère la suite du pipeline (attendue par _wait_and_render_initial)
+            self._restore_done.set()
+            # on peut nettoyer le snapshot si tu veux
+            try:
+                del self._ignored_keys_before_restore
+            except Exception:
+                pass
+
+    def _wait_and_render_initial(self):
+        """Attend la fin du RESTORE, puis fait UN SEUL rendu initial; démarre ensuite les services."""
+        # 0) Attente restore (non bloquante : on se replanifie)
+        if not getattr(self, "_restore_done", threading.Event()).is_set():
+            self.schedule_after(50, self._wait_and_render_initial)
+            return
+
+        # 1) Rendu initial (idempotent) sous garde d'events supprimés
+        try:
+            self._suppress_events = True  # aucun on_tab_changed ne doit s'exécuter ici
+            self._initial_render_once()  # ne doit pas clear/reinsérer agressivement
+            self.restoring = False  # autorise les actions utilisateur (Download All, etc.)
+        except Exception as e:
+            log_error(f"[BOOT] initial render failed: {e}")
+
+        # 2) Fin du boot → on autorise les events
+        self._booting = False
+        self._suppress_events = False
+
+        # 3) Déclenche explicitement la 1ʳᵉ charge des onglets visibles (remplit ND/Completed/Ignored selon le tab actif)
+        try:
+            # On force un passage par les handlers, maintenant que les events ne sont plus supprimés
+            # et que les statuts (dont 'Ignored') ont été ré-appliqués par la phase de restore.
+            self.on_video_notebook_tab_changed(None)
+        except Exception as e:
+            log_warning(f"[BOOT] video tab initial load failed: {e}")
+
+        try:
+            self.on_image_notebook_tab_changed(None)
+        except Exception as e:
+            log_warning(f"[BOOT] image tab initial load failed: {e}")
+
+        # 4) Démarrage services (après boot)
         self.start_queue_processor()
-        threading.Thread(target=self.restore_progress_background, daemon=True).start()
-        self.insert_media_in_treeview()
+        if not hasattr(self, "_monitor_started"):
+            self._monitor_started = True
+            threading.Thread(target=self.monitor_threads_background, daemon=True).start()
+
+        # 5) Post UI (tags/stats uniquement — pas d'insertion)
+        self.schedule_after(50, self._post_ui_bootstrap)
+
+        # 6) Boucle de retry + stats initiales
         self.retry_failed_downloads_loop(interval_minutes=5)
         self.update_media_stats()
 
+    def _fix_media_types(self):
+        """
+        Corrige les types incohérents via l'extension de fichier.
+        Force 'video'/'image' si l'extension est explicite.
+        """
+        VIDEO_EXT = {".mp4", ".m4v", ".mov", ".webm", ".avi", ".flv", ".mkv"}
+        IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+        fixed = 0
+        for m in self.medias:
+            name = (m.get("name") or "").strip()
+            if not name:
+                continue
+            ext = os.path.splitext(name.lower())[1]
+            t = (m.get("type") or "").strip().lower()
+
+            if ext in VIDEO_EXT and t != "video":
+                m["type"] = "video"
+                fixed += 1
+            elif ext in IMAGE_EXT and t != "image":
+                m["type"] = "image"
+                fixed += 1
+            elif t not in ("video", "image"):
+                # fallback neutre
+                m["type"] = "video" if ext in VIDEO_EXT else "image" if ext in IMAGE_EXT else "autre"
+
+        if fixed:
+            log_warning(f"[TYPES] {fixed} type(s) corrigé(s) via extension")
+
+    def debug_snapshot(self, label=""):
+        try:
+            def count(tree):
+                try:
+                    return len(tree.get_children())
+                except Exception:
+                    return -1
+
+            snap = {
+                "label": label,
+                "loaded_treeviews": dict(getattr(self, "loaded_treeviews", {})),
+                "running_downloads": getattr(self, "running_downloads", None),
+                "queue_size": len(getattr(self, "download_queue", [])),
+                "video": {
+                    "ND": count(getattr(self, "video_not_downloaded_tree", None)),
+                    "Completed": count(getattr(self, "video_completed_tree", None)),
+                    "Ignored": count(getattr(self, "video_ignored_tree", None)),
+                },
+                "image": {
+                    "ND": count(getattr(self, "image_not_downloaded_tree", None)),
+                    "Completed": count(getattr(self, "image_completed_tree", None)),
+                    "Ignored": count(getattr(self, "image_ignored_tree", None)),
+                },
+                "medias_counts": {
+                    "total": len(self.medias),
+                    "video": sum(1 for m in self.medias if (m.get("type") or "").lower() == "video"),
+                    "image": sum(1 for m in self.medias if (m.get("type") or "").lower() == "image"),
+                    "nd_video": sum(1 for m in self.medias if (m.get("type") or "").lower() == "video" and (
+                            m.get("status", "").lower() not in ("completed", "ignored"))),
+                }
+            }
+            log_info(f"[DEBUG-SNAP] {snap}")
+        except Exception as e:
+            log_warning(f"[DEBUG-SNAP] fail: {e}")
+
+    def _initial_render_once(self):
+        if self._initial_render_done:
+            return
+        self._initial_render_done = True
+
+        # Initialise le cache 'loaded_treeviews' si besoin
+        if not hasattr(self, "loaded_treeviews"):
+            self.loaded_treeviews = {}
+
+        # Remplit chaque tree UNE fois (pas de clear+reinsert ensuite)
+        try:
+            self.configure_tree_tags()
+        except Exception:
+            pass
+
+        # Vidéos
+        if "video_not_downloaded" not in self.loaded_treeviews:
+            self.insert_media_in_treeview(tree_type="video", status="not_downloaded")
+            self.loaded_treeviews["video_not_downloaded"] = True
+        if "video_completed" not in self.loaded_treeviews:
+            self.insert_media_in_treeview(tree_type="video", status="completed")
+            self.loaded_treeviews["video_completed"] = True
+        if "video_ignored" not in self.loaded_treeviews:
+            self.insert_media_in_treeview(tree_type="video", status="ignored")
+            self.loaded_treeviews["video_ignored"] = True
+
+        # Images
+        if "image_not_downloaded" not in self.loaded_treeviews:
+            self.insert_media_in_treeview(tree_type="image", status="not_downloaded")
+            self.loaded_treeviews["image_not_downloaded"] = True
+        if "image_completed" not in self.loaded_treeviews:
+            self.insert_media_in_treeview(tree_type="image", status="completed")
+            self.loaded_treeviews["image_completed"] = True
+        if "image_ignored" not in self.loaded_treeviews:
+            self.insert_media_in_treeview(tree_type="image", status="ignored")
+            self.loaded_treeviews["image_ignored"] = True
+
+        # Stats de header
+        try:
+            self.update_status_summary()
+        except Exception:
+            pass
+
+    def _post_ui_bootstrap(self):
+        # ⚠️ Ne pas marquer d’onglet comme "déjà chargé" ici.
+        try:
+            # Initialise le dict s'il n'existe pas, mais le laisser VIDE
+            if not hasattr(self, "loaded_treeviews") or not isinstance(getattr(self, "loaded_treeviews"), dict):
+                self.loaded_treeviews = {}
+
+            # Config visuelle uniquement (pas d'insertion dans les trees)
+            self.configure_tree_tags()
+
+            # Stats & résumé (léger)
+            self.update_media_stats()
+            self.update_status_summary()
+
+            # NE PAS appeler:
+            # - insert_media_in_treeview(...)
+            # - start_queue_processor() (déjà lancé ailleurs)
+            # - aucun clear/reinsert
+        except Exception as e:
+            log_error(f"[BOOT] post UI bootstrap failed: {e}")
+
+    def update_status_summary(self):
+        try:
+            # calcule et set le label déjà existant
+            total = len(self.medias)
+            completed = sum(1 for m in self.medias if m.get("status") == "Completed")
+            percent = round((completed / total) * 100, 1) if total else 0
+            if hasattr(self, "media_stats_label"):
+                self.media_stats_label.config(text=f"{completed}/{total} — {percent}%")
+        except Exception as e:
+            log_warning(f"[SUMMARY] Stub summary error: {e}")
+
     def on_video_notebook_tab_changed(self, event):
+        if getattr(self, "_suppress_events", False):
+            log_info(f"[NOTEBOOK] (suppressed) video tab change ignoré pendant boot")
+            return
         selected_tab = self.video_notebook.select()
-        tab_name = self.video_notebook.tab(selected_tab, "text").lower()
-        tree_key = f"video_{'completed' if tab_name == 'completed' else 'not_downloaded'}"
-        
-        log_info(f"[NOTEBOOK] [Window {self.window_id}] Changement d'onglet : {tab_name} (tree_key={tree_key})")
-        
-        if tree_key not in self.loaded_treeviews:
-            log_info(f"[NOTEBOOK] [Window {self.window_id}] Chargement de {tree_key}")
+        tab_text = self.video_notebook.tab(selected_tab, "text").lower()
+
+        if "completed" in tab_text:
+            status = "completed"
+            tree_key = "video_completed"
+        elif "ignored" in tab_text:
+            status = "ignored"
+            tree_key = "video_ignored"
+        else:
+            status = "not_downloaded"
+            tree_key = "video_not_downloaded"
+
+        log_info(f"[NOTEBOOK] [Window {self.window_id}] Changement onglet vidéos : {tab_text} → {tree_key}")
+
+        if tree_key not in getattr(self, "loaded_treeviews", {}):
             self.root.config(cursor="wait")
-            self.insert_media_in_treeview(tree_type="video", status="completed" if tab_name == "completed" else "not_downloaded")
+            self.insert_media_in_treeview(tree_type="video", status=status)
             self.loaded_treeviews[tree_key] = True
             self.root.config(cursor="")
             log_info(f"[NOTEBOOK] [Window {self.window_id}] {tree_key} chargé")
@@ -354,17 +478,66 @@ class MediaWindow:
             log_info(f"[NOTEBOOK] [Window {self.window_id}] {tree_key} déjà chargé, aucun rechargement")
 
     def on_image_notebook_tab_changed(self, event):
+        if getattr(self, "_suppress_events", False):
+            log_info(f"[NOTEBOOK] (suppressed) image tab change ignoré pendant boot")
+            return
         selected_tab = self.image_notebook.select()
-        tab_name = self.image_notebook.tab(selected_tab, "text")
-        tree_key = f"image_{'completed' if tab_name == 'Completed' else 'not_downloaded'}"
-        
-        if tree_key not in self.loaded_treeviews:
-            log_info(f"[NOTEBOOK] [Window {self.window_id}] Chargement de {tree_key} suite au changement d'onglet")
+        tab_text = self.image_notebook.tab(selected_tab, "text").lower()
+
+        if "completed" in tab_text:
+            status = "completed"
+            tree_key = "image_completed"
+        elif "ignored" in tab_text:
+            status = "ignored"
+            tree_key = "image_ignored"
+        else:
+            status = "not_downloaded"
+            tree_key = "image_not_downloaded"
+
+        log_info(f"[NOTEBOOK] [Window {self.window_id}] Changement onglet images : {tab_text} → {tree_key}")
+
+        if tree_key not in getattr(self, "loaded_treeviews", {}):
             self.root.config(cursor="wait")
-            self.insert_media_in_treeview(tree_type="image", status="completed" if tab_name == "Completed" else "not_downloaded")
+            self.insert_media_in_treeview(tree_type="image", status=status)
             self.loaded_treeviews[tree_key] = True
             self.root.config(cursor="")
             log_info(f"[NOTEBOOK] [Window {self.window_id}] {tree_key} chargé")
+
+    def _snapshot_ignored_keys(self):
+        """Capture les clés stables des médias marqués 'Ignored' avant le restore."""
+        ignored = set()
+        for m in self.medias:
+            st = (m.get("status") or "").strip().lower()
+            if st == "ignored":
+                try:
+                    key = self._media_key(m)
+                except Exception:
+                    key = m.get("name")
+                if key:
+                    ignored.add(key)
+        return ignored
+
+    def _reapply_ignored_after_restore(self, ignored_keys):
+        """Ré-applique 'Ignored' sur base du snapshot pris AVANT restore."""
+        try:
+            for m in self.medias:
+                try:
+                    key = self._media_key(m)
+                except Exception:
+                    key = m.get("name")
+
+                if key in ignored_keys:
+                    m["status"] = "Ignored"
+                    m["error"] = ""
+                    m["speed"] = ""
+                    m["percent"] = 0
+                    subdir = self.video_dir if (m.get("type") or "").lower() == "video" else self.image_dir
+                    final_path = os.path.join(subdir, (m.get("name") or ""))
+                    if not os.path.exists(final_path):
+                        m["local_size"] = 0
+                    m["hash_check"] = ""
+        except Exception as e:
+            log_warning(f"[RESTORE] Ré-application Ignored a échoué : {e}")
 
     def sort_column(self, col, tree):
         log_info(f"[SORT] Tri colonne demandée : {col}")
@@ -425,8 +598,10 @@ class MediaWindow:
             tree = (
                 self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
                 self.video_completed_tree if tree_type == "video" and subtab == "completed" else
+                self.video_ignored_tree if tree_type == "video" and subtab == "ignored" else
                 self.image_not_downloaded_tree if tree_type == "image" and subtab == "not_downloaded" else
-                self.image_completed_tree
+                self.image_completed_tree if tree_type == "image" and subtab == "completed" else
+                self.image_ignored_tree
             )
         except AttributeError:
             log_warning(f"[Tree] ⚠️ Tree non défini pour {item_id} (probablement fermé)")
@@ -454,6 +629,63 @@ class MediaWindow:
             log_info(f"[Tree] 🚫 Erreur update item {item_id} (probablement fermé) : {e}")
         except Exception as e:
             log_warning(f"[Tree] Erreur inattendue update item {item_id} : {e}")
+
+    def get_current_tree_with_context(self):
+        """
+        Retourne (tree, tree_type, subtab) en fonction des onglets actuellement sélectionnés.
+        tree_type ∈ {"video","image"}
+        subtab ∈ {"not_downloaded","completed","ignored"}
+        """
+        try:
+            main_tab = self.notebook.tab(self.notebook.select(), "text").lower()
+        except Exception:
+            # fallback: suppose vidéos
+            main_tab = "vidéos"
+
+        if "vidé" in main_tab or "video" in main_tab:  # gestion FR/EN
+            tree_type = "video"
+            subtxt = self.video_notebook.tab(self.video_notebook.select(), "text").lower()
+            if "completed" in subtxt:
+                subtab = "completed"
+                tree = self.video_completed_tree
+            elif "ignored" in subtxt:
+                subtab = "ignored"
+                tree = self.video_ignored_tree
+            else:
+                subtab = "not_downloaded"
+                tree = self.video_not_downloaded_tree
+        else:
+            tree_type = "image"
+            subtxt = self.image_notebook.tab(self.image_notebook.select(), "text").lower()
+            if "completed" in subtxt:
+                subtab = "completed"
+                tree = self.image_completed_tree
+            elif "ignored" in subtxt:
+                subtab = "ignored"
+                tree = self.image_ignored_tree
+            else:
+                subtab = "not_downloaded"
+                tree = self.image_not_downloaded_tree
+
+        return tree, tree_type, subtab
+
+    def check_sha256_all_video_not_downloaded(self):
+        """Vérifie le SHA256 pour tous les items de l'onglet Vidéos > Not downloaded."""
+        try:
+            tree = self.video_not_downloaded_tree
+            for item_id in tree.get_children():
+                self.verify_sha256(item_id, "video", "not_downloaded")
+        except Exception as e:
+            log_error(f"[SHA256-ALL] Video not_downloaded: {e}")
+
+    def check_sha256_all_image_not_downloaded(self):
+        """Vérifie le SHA256 pour tous les items de l'onglet Photos > Not downloaded."""
+        try:
+            tree = self.image_not_downloaded_tree
+            for item_id in tree.get_children():
+                self.verify_sha256(item_id, "image", "not_downloaded")
+        except Exception as e:
+            log_error(f"[SHA256-ALL] Image not_downloaded: {e}")
 
     def _size_to_bytes(self, size_str):
         try:
@@ -496,48 +728,92 @@ class MediaWindow:
             log_error(f"[PARSE] ❌ Exception size_str='{size_str}' : {e}")
             return 0
 
+    def _normalize_restored_statuses(self):
+        """Force les statuts instables en Paused après restauration"""
+        changed = 0
+        for media in self.medias:
+            status = (media.get("status") or "").lower()
+            if status in ("downloading", "retrying", "waiting"):
+                media["status"] = "Paused"
+                media["speed"] = ""
+                media["error"] = ""
+                changed += 1
+        if changed:
+            log_info(f"[RESTORE] {changed} média(s) normalisé(s) → Paused")
+            self.save_json()
+
     def restore_progress_background(self):
-        log_info(f"[RESTORE] [Window {self.window_id}] Début de la restauration du progrès")
+        """
+        Restaure l'état depuis le disque SANS réinsérer le Tree.
+        - Pendant le boot: data-only (aucune écriture UI).
+        - Après le boot: MAJ des stats/summary uniquement (update léger).
+        """
         try:
-            if self.is_closing or not self.is_active or not self.check_ui_alive() or not self.restore_progress_running:
-                log_info(f"[RESTORE] [Window {self.window_id}] Arrêt de la restauration : fenêtre fermée ou arrêt demandé")
+            booting = getattr(self, "_booting", False)
+            suppress = getattr(self, "_suppress_events", False)
+
+            # ⚠️ Pendant le boot on ne touche pas à l'UI (pas de wait sur ui_ready, pas de curseur)
+            if booting or suppress:
+                try:
+                    self.restore_progress_from_files(skip_sha256_verify=True)
+                    log_info(f"[RESTORE] [Window {self.window_id}] Data restore (boot) OK")
+                except Exception as e:
+                    log_error(f"[RESTORE] Data restore (boot) a échoué : {e}")
                 return
 
-            self.root.config(cursor="wait")
-            self.restore_progress_from_files()
-            log_info(f"[RESTORE] [Window {self.window_id}] Progrès restauré depuis les fichiers")
-
-            if self.is_closing or not self.is_active or not self.check_ui_alive() or not self.restore_progress_running:
-                log_info(f"[RESTORE] [Window {self.window_id}] Arrêt avant update_status_summary")
-                self.root.config(cursor="")
+            # Ici, le boot est terminé → on peut accéder à l'UI en douceur
+            self.ui_ready.wait()  # s'assure que les widgets existent
+            if not self.check_ui_alive():
+                log_info(f"[RESTORE] [Window {self.window_id}] UI non disponible, restauration data uniquement")
+                try:
+                    self.restore_progress_from_files(skip_sha256_verify=True)
+                except Exception as e:
+                    log_error(f"[RESTORE] Data restore (no UI) a échoué : {e}")
                 return
 
-            self.update_status_summary()
-            log_info(f"[RESTORE] [Window {self.window_id}] Résumé des statuts mis à jour")
+            log_info(f"[RESTORE] [Window {self.window_id}] Début restauration (post-boot)")
+            try:
+                # Curseur "wait" uniquement si UI vivante
+                self.root.config(cursor="wait")
+            except Exception:
+                pass
 
-            if self.is_closing or not self.is_active or not self.check_ui_alive() or not self.restore_progress_running:
-                log_info(f"[RESTORE] [Window {self.window_id}] Arrêt avant insert_media_in_treeview")
-                self.root.config(cursor="")
-                return
+            try:
+                # 1) Restauration DATA uniquement
+                try:
+                    self.restore_progress_from_files(skip_sha256_verify=True)
+                    log_info(f"[RESTORE] [Window {self.window_id}] Progrès restauré depuis les fichiers")
+                except Exception as e:
+                    log_error(f"[RESTORE] restore_progress_from_files() a échoué : {e}")
 
-            self.insert_media_in_treeview(tree_type="video", status="not_downloaded")
-            log_info(f"[RESTORE] [Window {self.window_id}] Vidéos non téléchargées insérées dans le treeview")
+                # 2) 🚫 PAS de insert_media_in_treeview() ici
+                #    On laisse le rendu initial unique (_initial_render_once) et les updates in-place faire le job.
 
-            if self.is_closing or not self.is_active or not self.check_ui_alive() or not self.restore_progress_running:
-                log_info(f"[RESTORE] [Window {self.window_id}] Arrêt avant update_media_stats")
-                self.root.config(cursor="")
-                return
+                # 3) MAJ légère de l'UI (stats/summary), sans toucher aux items
+                try:
+                    if self.check_ui_alive():
+                        self.update_status_summary()
+                except Exception as e:
+                    log_error(f"[RESTORE] update_status_summary() a échoué : {e}")
 
-            self.update_media_stats()
-            log_info(f"[RESTORE] [Window {self.window_id}] Statistiques mises à jour")
+                try:
+                    if self.check_ui_alive():
+                        self.update_media_stats()
+                except Exception as e:
+                    log_error(f"[RESTORE] update_media_stats() a échoué : {e}")
 
-            self.root.config(cursor="")
-            log_info(f"[RESTORE] [Window {self.window_id}] Restauration terminée")
+                log_info(f"[RESTORE] [Window {self.window_id}] Restauration terminée (post-boot)")
+            finally:
+                try:
+                    if self.check_ui_alive():
+                        self.root.config(cursor="")
+                except Exception:
+                    pass
 
+        finally:
+            # ✅ Toujours désarmer le flag, quoi qu’il arrive
             self.restoring = False
-        except Exception as e:
-            log_error(f"[RESTORE] [Window {self.window_id}] Erreur lors de la restauration : {e}")
-            self.root.config(cursor="")
+            # Optionnel: self.restore_progress_running = False
 
     def load_global_settings(self):
         settings_path = os.path.join(os.getcwd(), "settings.json")
@@ -554,80 +830,194 @@ class MediaWindow:
             log_error(f"[SETTINGS] Erreur chargement settings.json : {e}")
 
     def on_close(self):
-        log_info(f"[CLOSE] [Window {self.window_id}] Fermeture de la fenêtre pour {self.profile_key}")
-        self.is_closing = True
-        self.is_active = False
-        self.queue_processor_running = False
-        self.restore_progress_running = False  # Arrêter restore_progress_background
-
-        # Mettre les médias en cours en "Paused"
-        with self.save_lock:
-            for media in self.medias:
-                if media.get("status") in ["Downloading", "Retrying"]:
-                    media["status"] = "Paused"
-                    media["error"] = ""
-                    self.refresh_media_row(media)
-                    log_info(f"[CLOSE] [Window {self.window_id}] {media.get('name')} mis en Paused")
-
-            self.download_queue.clear()
-            self.running_downloads = 0
-            log_info(f"[CLOSE] [Window {self.window_id}] File d'attente vidée, téléchargements réinitialisés")
-
+        # ========= Guard anti re-entrance / idempotence =========
+        # (on autorise shutdown du contrôleur en tout premier si dispo)
         try:
-            if self.root.winfo_exists():
-                self.root.destroy()
-                log_info(f"[CLOSE] [Window {self.window_id}] Fenêtre détruite")
+            if hasattr(self, "ctrl") and self.ctrl:
+                # Ne pas bloquer l'UI (on a un withdraw juste après)
+                self.ctrl.shutdown(wait=False)
+        except Exception:
+            pass
+
+        if getattr(self, "_closing_already", False):
+            log_info(f"[CLOSE] [Window {getattr(self, 'window_id', '?')}] Close déjà en cours → ignore")
+            return
+        self._closing_already = True
+        log_info(
+            f"[CLOSE] [Window {getattr(self, 'window_id', '?')}] Fermeture de la fenêtre pour {getattr(self, 'profile_key', '?')}")
+
+        # ========= Garde-fous UI tout de suite =========
+        self._suppress_events = True
+        try:
+            if getattr(self, "root", None):
+                self.root.protocol("WM_DELETE_WINDOW", lambda: None)
+        except Exception:
+            pass
+
+        # ========= Flags d'arrêt immédiats (lus par les threads) =========
+        try:
+            self.is_closing = True
+            self.is_active = False
+            self.queue_processor_running = False
+            self.restore_progress_running = False
+
+            # Stop watchdog
+            if hasattr(self, "_monitor_stop") and self._monitor_stop:
+                try:
+                    self._monitor_stop.set()
+                except Exception:
+                    pass
+
+            # Stop retry loop
+            if hasattr(self, "_retry_stop") and self._retry_stop:
+                try:
+                    self._retry_stop.set()
+                except Exception:
+                    pass
+
+            # Stop éventuels autres événements
+            if hasattr(self, "stop_event") and self.stop_event:
+                try:
+                    self.stop_event.set()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # ========= Retire la fenêtre de l'écran au plus vite (UX) =========
+        try:
+            if getattr(self, "root", None) and self.root.winfo_exists():
+                self.root.withdraw()
+                self.root.update_idletasks()
+        except Exception:
+            pass
+
+        # ========= Annule tous les after() connus (le plus tôt possible) =========
+        try:
+            if hasattr(self, "_cancel_all_afters") and callable(self._cancel_all_afters):
+                self._cancel_all_afters()
             else:
-                log_info(f"[CLOSE] [Window {self.window_id}] Fenêtre déjà détruite")
-        except Exception as e:
-            log_warning(f"[CLOSE] [Window {self.window_id}] Erreur lors de la destruction de la fenêtre : {e}")
-        active_threads = threading.enumerate()
-        log_info(f"[CLOSE] [Window {self.window_id}] Threads actifs : {len(active_threads)}")
-        for thread in active_threads:
-            log_info(f"[CLOSE] [Window {self.window_id}] Thread : {thread.name}")
+                for aid in list(getattr(self, "_after_ids", [])):
+                    try:
+                        if getattr(self, "root", None) and self.root.winfo_exists():
+                            self.root.after_cancel(aid)
+                    except Exception:
+                        pass
+                try:
+                    self._after_ids.clear()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-    def apply_filter(self):
-        if not all(hasattr(self, tree) and getattr(self, tree).winfo_exists() for tree in [
-            "video_not_downloaded_tree", "video_completed_tree",
-            "image_not_downloaded_tree", "image_completed_tree"
-        ]):
-            return
-
-        active_status_filters = [key for key, var in self.filter_vars.items() if var.get()]
+        # ========= Désabonnement EventBus (best effort) =========
         try:
-            for tree in [self.video_not_downloaded_tree, self.video_completed_tree,
-                         self.image_not_downloaded_tree, self.image_completed_tree]:
-                tree.delete(*tree.get_children())
-            self.item_id_cache.clear()
+            if hasattr(event_bus, "publish"):
+                event_bus.publish("profile:update", {
+                    "reason": "window_close",
+                    "no_sort": True,
+                    "profile_key": getattr(self, "profile_key", None),
+                    "service": getattr(self, "service", None),
+                    "username": getattr(self, "username", None),
+                })
         except Exception as e:
-            log_error(f"[FILTER] Échec clear tree : {e}")
-            return
+            log_warning(f"[CLOSE] Notification profile:update échouée : {e}")
+
+        # ========= Stopper/vider la file & normaliser les statuts =========
+        changed = 0
+        try:
+            for m in getattr(self, "medias", []):
+                if m.get("status") in ("Downloading", "Retrying", "Waiting"):
+                    m["status"] = "Paused"
+                    m["speed"] = ""
+                    m["error"] = ""
+                    changed += 1
+
+            # vide proprement la queue si elle existe (Queue ou list)
+            try:
+                if hasattr(self, "download_queue"):
+                    if hasattr(self.download_queue, "queue"):  # queue.Queue
+                        while True:
+                            try:
+                                self.download_queue.get_nowait()
+                            except Exception:
+                                break
+                    elif hasattr(self.download_queue, "clear"):
+                        self.download_queue.clear()
+            except Exception:
+                pass
+
+            try:
+                self.running_downloads = 0
+            except Exception:
+                pass
+        except Exception as e:
+            log_warning(f"[CLOSE] Normalisation/queue a échoué: {e}")
+
+        # ========= Sauvegarde FINALE (toujours) =========
+        try:
+            # même si 'changed' == 0, on persiste l'état (ex: clic 'Ignore all' juste avant close)
+            self.save_json()
+            if changed:
+                log_info(f"[CLOSE] {changed} média(s) converti(s) en Paused et sauvegardé(s)")
+            else:
+                log_info(f"[CLOSE] Sauvegarde finale effectuée (aucune normalisation supplémentaire)")
+        except Exception as e:
+            log_warning(f"[CLOSE] Sauvegarde finale a échoué: {e}")
+
+        # ========= Notifier l’appli (best effort) =========
+        try:
+            if hasattr(self, "_notify_profile_update"):
+                self._notify_profile_update()
+        except Exception as e:
+            log_warning(f"[CLOSE] Notification profile:update échouée : {e}")
+
+        # ========= Destruction forcée sur thread UI (idempotent) =========
+        def _force_destroy():
+            try:
+                if getattr(self, "root", None) and self.root.winfo_exists():
+                    # Détruit d'abord les enfants pour couper les callbacks UI résiduels
+                    for w in list(self.root.winfo_children()):
+                        try:
+                            w.destroy()
+                        except Exception:
+                            pass
+                    self.root.destroy()
+                    log_info(f"[CLOSE] Fenêtre détruite")
+            except Exception as e:
+                log_warning(f"[CLOSE] Erreur destruction fenêtre: {e}")
 
         try:
-            self.configure_tree_tags()
+            if getattr(self, "root", None) and self.root.winfo_exists():
+                # Une seule séquence de backup destroy (sans doublon)
+                self.root.after(0, _force_destroy)
+                self.root.after(80, _force_destroy)  # backup court
+                self.root.after(300, _force_destroy)  # backup long
         except Exception as e:
-            log_warning(f"[FILTER] Erreur configuration tags couleurs : {e}")
+            log_warning(f"[CLOSE] Planif destroy échouée : {e}")
 
-        for media in self.medias:
-            if "type" not in media or not media["type"]:
-                ext = os.path.splitext(media.get("name", "") or "")[1].lower()
-                if ext in [".mp4", ".m4v", ".mov", ".webm", ".avi", ".flv", ".mkv"]:
-                    media["type"] = "video"
-                elif ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
-                    media["type"] = "image"
-                else:
-                    media["type"] = "autre"
-
-            status = media.get("status", "Missing")
-            type_ = media.get("type", "autre")
-
-            if active_status_filters and status in active_status_filters:
-                continue
-
-            if type_ == "video":
-                self.insert_single_media(media, "video", "completed" if status == "Completed" else "not_downloaded")
-            elif type_ == "image":
-                self.insert_single_media(media, "image", "completed" if status == "Completed" else "not_downloaded")
+    def _notify_profile_update(self):
+        payload = {"service": self.service, "username": self.username, "profile_key": self.profile_key}
+        bus = event_bus
+        try:
+            if hasattr(bus, "publish"):
+                bus.publish("profile:update", payload)
+            elif hasattr(bus, "emit"):
+                bus.emit("profile:update", payload)
+            elif hasattr(bus, "post"):
+                bus.post("profile:update", payload)
+            elif hasattr(bus, "send"):
+                bus.send("profile:update", payload)
+            elif hasattr(bus, "dispatch"):
+                bus.dispatch("profile:update", payload)
+            elif hasattr(bus, "trigger"):
+                bus.trigger("profile:update", payload)
+            elif callable(bus):
+                bus("profile:update", payload)
+            else:
+                log_warning("[EVENT] Aucune méthode compatible sur event_bus (publish/emit/post/send/dispatch/trigger)")
+        except Exception as e:
+            log_warning(f"[EVENT] Notification profile:update échouée : {e}")
 
     def configure_tree_tags(self):
         try:
@@ -658,15 +1048,14 @@ class MediaWindow:
                 "missing.image": dict(background="#212121", foreground="white"),
                 "missing.video": dict(background="#212121", foreground="white"),
             }
-            for tree in [self.video_not_downloaded_tree, self.video_completed_tree,
-                         self.image_not_downloaded_tree, self.image_completed_tree]:
+            for tree in [
+                self.video_not_downloaded_tree, self.video_completed_tree, self.video_ignored_tree,
+                self.image_not_downloaded_tree, self.image_completed_tree, self.image_ignored_tree
+            ]:
                 for tag, options in tags.items():
                     tree.tag_configure(tag, **options)
         except Exception as e:
             log_warning(f"[TREEVIEW] Erreur configuration tags couleurs : {e}")
-
-    def start_download(self, media):
-        threading.Thread(target=self.download_file_thread, args=(media,), daemon=True).start()
 
     def update_media_stats(self):
         if self.is_closing or not self.is_active or not self.check_ui_alive() or not self.restore_progress_running:
@@ -687,61 +1076,42 @@ class MediaWindow:
         except Exception as e:
             log_warning(f"[STATS] [Window {self.window_id}] Erreur lors de la mise à jour des stats : {e}")
 
-    def get_remote_file_size(self, url):
-        try:
-            parsed = urlparse(url)
-            cdn_path = parsed.path
-            timeout = 10
-            log_info(f"[HEAD] Tentative de récupération de la taille pour URL: {url} avec timeout={timeout}")
-
-            base_url = f"https://coomer.st{cdn_path}"
-            log_info(f"[HEAD] Essai sur base URL: {base_url}")
-            response = requests.head(base_url, timeout=timeout)
-            if response.status_code == 200 and "Content-Length" in response.headers:
-                log_info(f"[HEAD] Succès sur base URL, taille: {response.headers['Content-Length']}")
-                return int(response.headers["Content-Length"])
-
-            for node in CDN_NODES:
-                fallback_url = f"https://{node}.coomer.st{cdn_path}"
-                log_info(f"[HEAD] Essai sur CDN node {node}: {fallback_url}")
-                response = requests.head(fallback_url, timeout=timeout)
-                if response.status_code == 200 and "Content-Length" in response.headers:
-                    log_info(f"[HEAD] Succès sur {node}, taille: {response.headers['Content-Length']}")
-                    return int(response.headers["Content-Length"])
-
-            log_warning(f"[HEAD] Aucun nœud n'a répondu avec succès pour {url}")
-            return None
-
-        except Exception as e:
-            log_warning(f"[HEAD] Erreur lors de la récupération de la taille HTTP pour {url}: {e}")
-            return None
-
-    def setup_dirs(self):
-        self.default_dir = os.path.join(self.download_root, self.service, self.username)
-        custom_dir = self.data.get("download_dir")
-        if custom_dir:
-            self.local_dir = custom_dir
-        else:
-            self.local_dir = self.default_dir
-
-        self.video_dir = os.path.join(self.local_dir, "v")
-        self.image_dir = os.path.join(self.local_dir, "p")
-        os.makedirs(self.video_dir, exist_ok=True)
-        os.makedirs(self.image_dir, exist_ok=True)
-
     def refresh_profile(self):
+        if self._booting or self._suppress_events:
+            return
         self.restore_progress_from_files(skip_sha256_verify=True)
         self.update_status_summary()
-        self.insert_media_in_treeview()
         self.update_media_stats()
+        # Pas de insert_media_in_treeview() ici → on évite le flicker
+        # Les lignes bougent d’onglet via refresh_media_row/remove_media_from_all_tabs()
         self.apply_filter()
 
-    def restore_progress_from_files(self, skip_sha256_verify=True):
-        from utils import sha256_file
+    def remove_media_from_all_tabs(self, name, media_type):
+        """Supprime un média de tous les onglets avant réinsertion dans le bon."""
+        for subtab in ("not_downloaded", "completed", "ignored"):
+            cache_key = (name, media_type, subtab)
+            iid = self.item_id_cache.pop(cache_key, None)
+            if iid:
+                try:
+                    tree = (
+                        self.video_not_downloaded_tree if media_type == "video" and subtab == "not_downloaded" else
+                        self.video_completed_tree if media_type == "video" and subtab == "completed" else
+                        self.video_ignored_tree if media_type == "video" and subtab == "ignored" else
+                        self.image_not_downloaded_tree if media_type == "image" and subtab == "not_downloaded" else
+                        self.image_completed_tree if media_type == "image" and subtab == "completed" else
+                        self.image_ignored_tree
+                    )
+                    if tree.exists(iid):
+                        tree.delete(iid)
+                except Exception:
+                    pass
 
+    def restore_progress_from_files(self, skip_sha256_verify=True):
         log_info(f"[RESTORE] [Window {self.window_id}] Using video_dir: {self.video_dir}")
         log_info(f"[RESTORE] [Window {self.window_id}] Using image_dir: {self.image_dir}")
         log_info(f"[RESTORE] [Window {self.window_id}] Using local_dir: {self.local_dir}")
+
+        touched_types = set()
 
         for media in self.medias:
             name = media.get("name", "")
@@ -749,65 +1119,72 @@ class MediaWindow:
                 log_warning(f"[RESTORE] [Window {self.window_id}] Média sans nom, ignoré")
                 continue
 
-            media["type"] = detect_type_from_name(name)
-            log_info(f"[RESTORE] [Window {self.window_id}] {name} → Type détecté : {media['type']}")
+            # — type
+            mtype = detect_type_from_name(name)
+            media["type"] = mtype
+            touched_types.add(mtype)
+            log_info(f"[RESTORE] [Window {self.window_id}] {name} → Type détecté : {mtype}")
 
-            if media["type"] == "video":
+            if mtype == "video":
                 subdir = os.path.join(self.local_dir, "v")
-            elif media["type"] == "image":
+            elif mtype == "image":
                 subdir = os.path.join(self.local_dir, "p")
             else:
                 subdir = self.local_dir
 
             dest_path = os.path.join(subdir, name)
             tmp_path = dest_path + ".tmp"
-            log_info(f"[RESTORE] [Window {self.window_id}] Vérification de {name} à {dest_path}")
 
+            prev_status = (media.get("status") or "").strip()
+
+            # === Règle d’or : NE JAMAIS ÉCRASER un Ignored pendant le restore ===
+            if prev_status == "Ignored":
+                # Met à jour uniquement des infos passives (taille locale) sans changer le status
+                if os.path.exists(dest_path):
+                    size = os.path.getsize(dest_path)
+                    media["local_size"] = size
+                    media["size_http"] = max(media.get("size_http", 0) or 0, size)
+                else:
+                    media["local_size"] = 0
+                    media["size_http"] = media.get("size_http", 0) or 0
+                # ne pas toucher percent/hash/speed/error ici
+                log_info(f"[RESTORE] {name} → Ignored (préservé)")
+                continue
+
+            # === Fichier temporaire présent → Paused
             if os.path.exists(tmp_path):
                 media["local_size"] = os.path.getsize(tmp_path)
                 media["status"] = "Paused"
                 media["percent"] = 0
-                media.setdefault("size_http", 0)
                 media["hash_check"] = ""
-                log_info(f"[RESTORE] [Window {self.window_id}] {name} → Paused (.tmp trouvé, {media['local_size']} bytes, size_http={media['size_http']})")
+                media.setdefault("size_http", 0)
 
+            # === Fichier final présent
             elif os.path.exists(dest_path):
                 size = os.path.getsize(dest_path)
                 media["local_size"] = size
-                expected_size = media.get("size_http", 0)
-                log_info(f"[RESTORE] [Window {self.window_id}] {name} → Taille locale : {size} bytes, taille attendue : {expected_size} bytes")
-
-                if not expected_size:
-                    media["size_http"] = size
-                    expected_size = size
-                    log_info(f"[RESTORE] [Window {self.window_id}] {name} → size_http défini à {size} bytes (aucune taille attendue initiale)")
-                else:
-                    media["size_http"] = max(size, expected_size)
-                    log_info(f"[RESTORE] [Window {self.window_id}] {name} → size_http mis à jour à {media['size_http']} bytes")
+                expected_size = media.get("size_http", 0) or 0
+                media["size_http"] = max(size, expected_size)
 
                 if not skip_sha256_verify:
                     try:
                         actual_hash = sha256_file(dest_path)
                         expected_hash = name.split("_")[-1].split(".")[0]
-                        log_info(f"[RESTORE] [Window {self.window_id}] {name} → SHA256 calculé : {actual_hash}, attendu : {expected_hash}")
                         if expected_hash and actual_hash.startswith(expected_hash):
                             media["status"] = "Completed"
                             media["percent"] = 100
                             media["hash_check"] = ""
-                            log_info(f"[RESTORE] [Window {self.window_id}] {name} → Completed (SHA256 ok, {size} bytes)")
                         elif size > 0:
                             media["status"] = "Incomplete"
                             media["percent"] = 0
                             media["hash_check"] = actual_hash
-                            log_warning(f"[RESTORE] [Window {self.window_id}] {name} → Incomplete (SHA256 mismatch, {size} bytes)")
                         else:
                             media["status"] = "Missing"
                             media["local_size"] = 0
                             media["percent"] = 0
                             media["hash_check"] = ""
-                            log_info(f"[RESTORE] [Window {self.window_id}] {name} → Fichier vide")
                     except Exception as e:
-                        log_warning(f"[RESTORE] [Window {self.window_id}] {name} → Erreur SHA256 : {e}, marqué comme Incomplete")
+                        log_warning(f"[RESTORE] {name} → Erreur SHA256 : {e}")
                         media["status"] = "Incomplete"
                         media["percent"] = 0
                         media["hash_check"] = ""
@@ -816,53 +1193,61 @@ class MediaWindow:
                         media["status"] = "Completed"
                         media["percent"] = 100
                         media["hash_check"] = ""
-                        log_info(f"[RESTORE] [Window {self.window_id}] {name} → Completed (SHA256 sauté, taille {size} bytes, attendu {expected_size} bytes)")
                     else:
                         media["status"] = "Missing"
                         media["local_size"] = 0
                         media["percent"] = 0
                         media["hash_check"] = ""
-                        log_info(f"[RESTORE] [Window {self.window_id}] {name} → Fichier vide")
+
+            # === Rien trouvé
             else:
                 media["status"] = "Missing"
                 media["local_size"] = 0
                 media["percent"] = 0
                 media["hash_check"] = ""
-                log_info(f"[RESTORE] [Window {self.window_id}] {name} → Missing (fichier non trouvé à {dest_path})")
 
+        # Normaliser les états transitoires (mais pas Ignored)
         for media in self.medias:
-            name = media.get("name", "")
-            if media.get("status") == "Paused":
-                log_info(f"[RESTORE] [Window {self.window_id}] {name} → Laissé en Paused")
-            elif media.get("status") == "Downloading":
+            st = (media.get("status") or "").strip()
+            if st in ("Downloading", "Retrying", "Waiting"):
                 media["status"] = "Paused"
-                log_info(f"[RESTORE] [Window {self.window_id}] {name} → Converti de Downloading à Paused")
-
-    def update_status_summary(self):
-        if self.is_closing or not self.is_active or not self.check_ui_alive() or not self.restore_progress_running:
-            log_info(f"[SUMMARY] [Window {self.window_id}] Mise à jour du résumé annulée : fenêtre fermée")
-            return
+                media["speed"] = ""
+                media["error"] = ""
 
         try:
-            total = len(self.medias)
-            completed = sum(1 for m in self.medias if m.get("status") == "Completed")
-            downloading = sum(1 for m in self.medias if m.get("status") == "Downloading")
-            waiting = sum(1 for m in self.medias if m.get("status") == "Waiting")
-            failed = sum(1 for m in self.medias if m.get("status") == "Failed")
-            retrying = sum(1 for m in self.medias if m.get("status") == "Retrying")
-            incomplete = sum(1 for m in self.medias if m.get("status") == "Incomplete")
-            paused = sum(1 for m in self.medias if m.get("status") == "Paused")
-
-            percent = round((completed / total) * 100, 1) if total > 0 else 0
-
-            self.media_stats_label.config(
-                text=f" {completed}/{total} —  {downloading} —  {waiting} —  {retrying} —  {failed} —  {incomplete} —  {paused} —  Vidéos: {self.stats_videos} | Images: {self.stats_images} | Autres: {self.stats_autres} — {percent}%"
-            )
-            log_info(f"[SUMMARY] [Window {self.window_id}] Résumé mis à jour : {completed}/{total}")
+            self.save_json()
         except Exception as e:
-            log_warning(f"[SUMMARY] [Window {self.window_id}] Erreur lors de la mise à jour du résumé : {e}")
+            log_warning(f"[RESTORE] Sauvegarde post-normalisation échouée : {e}")
+
+        # Refresh visuel ciblé (insertion se fera après, via rendu initial)
+        for m_type in touched_types:
+            try:
+                self.refresh_tabs_for_type(m_type)
+            except Exception:
+                pass
+
+    # ---- Auto-sort controls ----
+    def enable_auto_sort(self, enabled: bool):
+        """Toggle auto-sorting of treeviews. Disabled by default."""
+        self._auto_sort_enabled = bool(enabled)
+
+    @contextmanager
+    def suspend_sorting(self):
+        """Temporarily suspend any sorting while updating/moving items."""
+        prev = self._suspend_sorting
+        self._suspend_sorting = True
+        try:
+            yield
+        finally:
+            self._suspend_sorting = prev
+
 
     def resort_treeview_if_needed(self, tree):
+        # Respect global sorting guards
+        if getattr(self, "_suspend_sorting", False):
+            return
+        if not getattr(self, "_auto_sort_enabled", False):
+            return
         if not self.last_sorted_column:
             return
 
@@ -888,172 +1273,291 @@ class MediaWindow:
         except Exception as e:
             log_warning(f"[UI] Erreur tri treeview: {e}")
 
+
+    def _media_key(self, media: dict) -> str:
+        """Construit une clé unique et stable pour un média."""
+        return (
+                str(media.get("id"))
+                or media.get("cdn_path")
+                or media.get("url")
+                or media.get("name")
+                or ""
+        )
+
+
     def insert_media_in_treeview(self, tree_type="video", status="not_downloaded"):
         start_time = time.time()
-        if self.is_closing or not self.is_active or not self.check_ui_alive() or not self.restore_progress_running:
-            log_warning(f"[TREEVIEW] [Window {self.window_id}] Arbre non disponible ou détruit, insertion annulée")
+        tree_attr = f"{tree_type}_{status}_tree"
+
+        # ---- Existence & vie du widget ----
+        if not hasattr(self, tree_attr):
+            log_warning(f"[TREEVIEW] [Window {self.window_id}] {tree_attr} n'existe pas sur l'instance → abort")
+            return
+        if not self.check_ui_alive([tree_attr]):
+            log_warning(f"[TREEVIEW] [Window {self.window_id}] {tree_attr} pas prêt, insertion annulée")
+            return
+        if self.is_closing or not self.is_active or not self.restore_progress_running:
+            log_warning(f"[TREEVIEW] [Window {self.window_id}] Fenêtre inactive, insertion annulée")
             return
 
+        tree = getattr(self, tree_attr)
+        if not self.check_ui_alive(tree):
+            log_warning(f"[TREEVIEW] [Window {self.window_id}] {tree_attr} widget mort, insertion annulée")
+            return
+
+        # ---- DIAG global avant filtrage ----
+        total = len(self.medias)
+        videos = sum(1 for m in self.medias if (m.get("type") or "").strip().lower() == "video")
+        images = sum(1 for m in self.medias if (m.get("type") or "").strip().lower() == "image")
+        log_info(f"[TREEVIEW] [{self.window_id}] {tree_attr} DIAG: total={total} videos={videos} images={images}")
+
+        # ---- Clear + reset anti-doublon (seulement à l'initial render) ----
         try:
-            tree_attr = f"{tree_type}_{status}_tree"
-            if not hasattr(self, tree_attr) or not getattr(self, tree_attr).winfo_exists():
-                log_warning(f"[TREEVIEW] [Window {self.window_id}] {tree_attr} non disponible ou détruit, insertion annulée")
-                return
-
-            tree = getattr(self, tree_attr)
             tree.delete(*tree.get_children())
-            log_info(f"[TREEVIEW] [Window {self.window_id}] {tree_attr} vidé")
+            if not hasattr(self, "tree_item_keys"):
+                from collections import defaultdict
+                self.tree_item_keys = defaultdict(set)
+            self.tree_item_keys[tree_attr].clear()
+            log_info(f"[TREEVIEW] [Window {self.window_id}] {tree_attr} vidé + reset anti-doublons")
         except Exception as e:
-            log_warning(f"[TREEVIEW] [Window {self.window_id}] Erreur lors du vidage de {tree_attr} : {e}")
+            log_warning(f"[TREEVIEW] [Window {self.window_id}] Erreur vidage {tree_attr} : {e}")
             return
 
+        # ---- Comptage rapides pour vidéos à l'onglet ND ----
         if tree_type == "video" and status == "not_downloaded":
-            self.stats_videos = 0
-            self.stats_images = 0
-            self.stats_autres = 0
-            for media in self.medias:
-                type_ = media.get("type", "").strip().lower()
-                if not type_:
-                    ext = os.path.splitext(media.get("name", "").lower())[1]
-                    if ext in [".mp4", ".m4v", ".mov", ".webm", ".avi", ".flv", ".mkv"]:
-                        type_ = "video"
-                    elif ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
-                        type_ = "image"
-                    else:
-                        type_ = "autre"
-                    media["type"] = type_
+            self.stats_videos = self.stats_images = self.stats_autres = 0
+
+        VIDEO_EXT = {".mp4", ".m4v", ".mov", ".webm", ".avi", ".flv", ".mkv"}
+        IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+        # ---- Prépare les rows pour batch insert ----
+        prepared_rows = []
+        inserted = 0
+
+        # normalise statut attendu
+        wanted = status.strip().lower()
+
+        for media in self.medias:
+            # gardes de boucle
+            if self.is_closing or not self.is_active or not self.check_ui_alive() or not self.restore_progress_running:
+                log_warning(f"[TREEVIEW] [Window {self.window_id}] Arrêt insertion (fenêtre fermée)")
+                return
+            if not isinstance(media, dict):
+                continue
+
+            name = (media.get("name") or "").strip()
+            if not name:
+                continue
+
+            # ---- Normalisation TYPE robuste via extension ----
+            type_ = (media.get("type") or "").strip().lower()
+            if type_ not in ("video", "image"):
+                ext = os.path.splitext(name.lower())[1]
+                if ext in VIDEO_EXT:
+                    type_ = "video"
+                elif ext in IMAGE_EXT:
+                    type_ = "image"
+                else:
+                    type_ = "autre"
+                media["type"] = type_
+
+            # Stats rapides (vidéo ND)
+            if tree_type == "video" and status == "not_downloaded":
                 if type_ == "video":
                     self.stats_videos += 1
                 elif type_ == "image":
                     self.stats_images += 1
                 else:
                     self.stats_autres += 1
-            log_info(f"[TREEVIEW] [Window {self.window_id}] Stats calculées : vidéos={self.stats_videos}, images={self.stats_images}, autres={self.stats_autres}")
 
-        inserted = 0
-        for media in self.medias:
-            if self.is_closing or not self.is_active or not self.check_ui_alive() or not self.restore_progress_running:
-                log_warning(f"[TREEVIEW] [Window {self.window_id}] Arrêt de l'insertion des médias : fenêtre fermée")
-                return
+            # ---- Filtre par tab (case-insensitive, trim) ----
+            media_status_raw = media.get("status", "Missing")
+            media_status = (media_status_raw or "Missing").strip()
+            media_status_l = media_status.lower()
 
-            if not isinstance(media, dict):
-                log_warning(f"[TREEVIEW] [Window {self.window_id}] Entrée média non valide (non-dict), ignorée")
+            if type_ != tree_type:
                 continue
 
-            name = media.get("name", "")
-            media_status = media.get("status", "Missing").strip()
-            type_ = media.get("type", "").strip().lower()
-
-            if not name:
-                log_warning(f"[TREEVIEW] [Window {self.window_id}] Média sans nom, ignoré")
+            match = (
+                    (wanted == "completed" and media_status_l == "completed") or
+                    (wanted == "ignored" and media_status_l == "ignored") or
+                    (wanted == "not_downloaded" and media_status_l not in ("completed", "ignored"))
+            )
+            if not match:
                 continue
 
-            if type_ == tree_type and (
-                (status == "completed" and media_status == "Completed") or
-                (status == "not_downloaded" and media_status != "Completed")
-            ):
-                log_info(f"[TREEVIEW] [Window {self.window_id}] Insertion prévue pour {name} (status={media_status}, type={type_}) dans {tree_attr}")
-                try:
-                    self.insert_single_media(media, tree_type, status)
-                    inserted += 1
-                    log_info(f"[TREEVIEW] [Window {self.window_id}] Inséré {name} (status={media_status}, type={type_}) dans {tree_attr}")
-                except Exception as e:
-                    log_warning(f"[TREEVIEW] [Window {self.window_id}] Erreur lors de l'insertion de {name} : {e}")
+            # ---- anti-doublon (clé stable) ----
+            key = self._media_key(media) or name
+            if key in self.tree_item_keys[tree_attr]:
+                continue
+            self.tree_item_keys[tree_attr].add(key)
 
-        log_info(f"[TREEVIEW] [Window {self.window_id}] Insertion terminée pour {tree_attr} : {inserted} éléments en {time.time() - start_time:.2f}s")
+            # ---- compute values + tags ----
+            values = self._prepare_row_values(media, tree)
+            combined_tag = f"{media_status_l}.{tree_type}"
+            tags = (combined_tag, media_status_l, tree_type, "missing")
 
+            cache_key = (name, tree_type, status)
+            prepared_rows.append((values, tags, cache_key))
+            inserted += 1
+
+        # ---- Batch insert non-bloquant UI ----
+        self._bulk_insert_start(f"{tree_type}_{status}", prepared_rows, chunk_size=250, delay_ms=1)
+
+        # DIAG final
+        log_info(f"[TREEVIEW] [Window {self.window_id}] {tree_attr} → candidats={inserted} "
+                 f"en {time.time() - start_time:.2f}s (prep)")
+
+        # ---- Post actions légères ----
         if self.is_closing or not self.is_active or not self.check_ui_alive() or not self.restore_progress_running:
-            log_warning(f"[TREEVIEW] [Window {self.window_id}] Arrêt avant configuration des tags ou mise à jour du résumé")
             return
-
         try:
             self.configure_tree_tags()
-            log_info(f"[TREEVIEW] [Window {self.window_id}] Tags de couleur configurés pour {tree_attr}")
-        except Exception as e:
-            log_warning(f"[TREEVIEW] [Window {self.window_id}] Erreur configuration tags couleurs : {e}")
-
+        except Exception:
+            pass
         try:
             self.update_status_summary()
-            log_info(f"[TREEVIEW] [Window {self.window_id}] Résumé des statuts mis à jour")
-        except Exception as e:
-            log_warning(f"[TREEVIEW] [Window {self.window_id}] Erreur update_status_summary : {e}")
+        except Exception:
+            pass
+
 
     def insert_single_media(self, media, tree_type, subtab):
-        if not all(hasattr(self, tree) and getattr(self, tree).winfo_exists() for tree in [
-            "video_not_downloaded_tree", "video_completed_tree",
-            "image_not_downloaded_tree", "image_completed_tree"
-        ]):
-            log_warning(f"[INSERT] [Window {self.window_id}] Treeview non disponible, insertion annulée")
+        if self.is_closing or not self.is_active or not self.check_ui_alive():
+            return
+        if not isinstance(media, dict):
             return
 
-        tree = (
-            self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
-            self.video_completed_tree if tree_type == "video" and subtab == "completed" else
-            self.image_not_downloaded_tree if tree_type == "image" and subtab == "not_downloaded" else
-            self.image_completed_tree
+        try:
+            tree = (
+                self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
+                self.video_completed_tree if tree_type == "video" and subtab == "completed" else
+                self.video_ignored_tree if tree_type == "video" and subtab == "ignored" else
+                self.image_not_downloaded_tree if tree_type == "image" and subtab == "not_downloaded" else
+                self.image_completed_tree if tree_type == "image" and subtab == "completed" else
+                self.image_ignored_tree
+            )
+        except Exception:
+            return
+        if not tree.winfo_exists():
+            return
+
+        media.setdefault("name", "???")
+        media.setdefault("speed", "0 B/s")
+        media.setdefault("status", "Missing")
+        media.setdefault("error", "")
+        media.setdefault("url", "")
+        media.setdefault("hash_check", "")
+        media.setdefault("local_size", 0)
+        media.setdefault("size_http", 0)
+
+        name = media["name"]
+        if not name:
+            return
+
+        # 🔹 Retirer avant réinsertion (évite doublons)
+        self.remove_media_from_all_tabs(name, tree_type)
+
+        cache_key = (name, tree_type, subtab)
+        if cache_key in self.item_id_cache and tree.exists(self.item_id_cache[cache_key]):
+            return
+
+        downloaded = int(media.get("local_size", 0) or 0)
+        total = int(media.get("size_http", 0) or 0)
+        percent = int((downloaded / total) * 100) if total else 0
+        percent_str = render_progress_bar(percent)
+        ext = os.path.splitext(name)[1][1:].lower() or "unknown"
+
+        values = (
+            (name, format_bytes(downloaded), format_bytes(total),
+             media.get("speed", "0 B/s"), percent_str, media["status"], media["hash_check"],
+             ext, media["error"], media["url"], str(media.get("retry_count", 0)))
+            if tree in [self.video_not_downloaded_tree, self.image_not_downloaded_tree]
+            else
+            (name, format_bytes(downloaded), format_bytes(total),
+             percent_str, media["status"], media["hash_check"],
+             ext, media["error"], media["url"], str(media.get("retry_count", 0)))
         )
 
+        status = (media.get("status") or "Missing").lower()
+        tags = (f"{status}.{tree_type}", status, tree_type, "missing")
+
+        now = time.time()
+        last = self.last_ui_update.get(name, 0)
+        if now - last < 0.05:
+            return
+        self.last_ui_update[name] = now
+
+        def _do_insert():
+            if self.is_closing or not self.is_active:
+                return
+            if not self.check_ui_alive(tree):
+                return
+            try:
+                iid = tree.insert("", tk.END, values=values, tags=tags)
+                self.item_id_cache[cache_key] = iid
+                try:
+                    self.safe_update_tree(iid, tree_type, subtab, tags=(f"{status}.{tree_type}",))
+                    self.resort_treeview_if_needed(tree)
+                except Exception:
+                    pass
+            except Exception as e:
+                log_error(f"[INSERT] [{self.window_id}] insert_single_media fail {name} → {e}")
+
+        self.root.after_idle(_do_insert)
+
+
+    def _reapply_ignored_after_restore(self, *args, **kwargs):
+        """
+        Ré-applique 'Ignored' aux médias qui l'étaient avant le restore.
+        Doit être appelée juste après restore_progress_from_files().
+        Supporte un appel via after()/bind (args ignorés).
+        """
         try:
-            media.setdefault("name", "???")
-            media.setdefault("speed", "0 B/s")
-            media.setdefault("status", "Missing")
-            media.setdefault("error", "")
-            media.setdefault("url", "")
-            media.setdefault("hash_check", "")
-            media.setdefault("local_size", 0)
-            media.setdefault("size_http", 0)
+            # 1) Snapshot pris avant le restore (préféré)
+            ignored_keys = getattr(self, "_ignored_keys_before_restore", None)
 
-            name = media["name"]
-            ext = os.path.splitext(name)[1][1:].lower() or "unknown"
-            downloaded = media["local_size"]
-            total = media["size_http"]
-            status = media["status"]
-            error = media["error"]
-            hash_check = media["hash_check"]
-            url = media["url"]
-            speed = media.get("speed", "0 B/s")
+            # 2) Fallback safe: si pas de snapshot, on prend ceux déjà 'Ignored' (idempotent)
+            if not ignored_keys:
+                ignored_keys = set()
+                for m in self.medias:
+                    st = (m.get("status") or "").strip().lower()
+                    if st == "ignored":
+                        try:
+                            key = self._media_key(m)
+                        except Exception:
+                            key = m.get("name")
+                        if key:
+                            ignored_keys.add(key)
 
-            percent = int((downloaded / total) * 100) if total else 0
-            percent_str = render_progress_bar(percent)
+            if not ignored_keys:
+                return  # rien à faire
 
-            if tree in [self.video_not_downloaded_tree, self.image_not_downloaded_tree]:
-                values = (
-                    name,
-                    format_bytes(downloaded),
-                    format_bytes(total),
-                    speed,
-                    percent_str,
-                    status,
-                    hash_check,
-                    ext,
-                    error,
-                    url,
-                    str(media.get("retry_count", 0))
-                )
-            else:
-                values = (
-                    name,
-                    format_bytes(downloaded),
-                    format_bytes(total),
-                    percent_str,
-                    status,
-                    hash_check,
-                    ext,
-                    error,
-                    url,
-                    str(media.get("retry_count", 0))
-                )
+            # 3) Ré-application
+            for m in self.medias:
+                try:
+                    key = self._media_key(m)
+                except Exception:
+                    key = m.get("name")
 
-            log_info(f"[INSERT] [Window {self.window_id}] {name} → status={status} type={tree_type} tree={tree_type}/{subtab} avec speed={speed}")
+                if not key or key not in ignored_keys:
+                    continue
 
-            combined_tag = f"{status.lower()}.{tree_type}"
-            fallback_tags = [status.lower(), tree_type, "missing"]
+                m["status"] = "Ignored"
+                m["error"] = ""
+                m["speed"] = ""
+                m["percent"] = 0
+                m["hash_check"] = ""
 
-            item_id = tree.insert("", tk.END, values=values, tags=(combined_tag, *fallback_tags))
-            self.item_id_cache[(name, tree_type, subtab)] = item_id
+                # remet local_size à 0 si le fichier final n'existe pas
+                mtype = (m.get("type") or "").lower()
+                subdir = self.video_dir if mtype == "video" else self.image_dir
+                final_path = os.path.join(subdir, m.get("name", "") or "")
+                if not os.path.exists(final_path):
+                    m["local_size"] = 0
 
         except Exception as e:
-            log_error(f"[INSERT] [Window {self.window_id}] Erreur insertion média {tree_type}/{subtab}: {e}")
+            log_warning(f"[RESTORE] Ré-application Ignored a échoué : {e}")
+
 
     def on_right_click(self, event, tree_type, subtab):
         tree = (self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
@@ -1069,7 +1573,8 @@ class MediaWindow:
             tree.selection_set(iid)
             menu.add_command(label="Télécharger", command=lambda: self.enqueue_download(iid, tree_type, subtab))
             menu.add_command(label="Ouvrir", command=lambda: self.open_selected_media(iid, tree_type, subtab))
-            menu.add_command(label="Ouvrir dossier destination", command=lambda: self.open_media_dir(iid, tree_type, subtab))
+            menu.add_command(label="Ouvrir dossier destination",
+                             command=lambda: self.open_media_dir(iid, tree_type, subtab))
             menu.add_command(label="Re-vérifier SHA256", command=lambda: self.verify_sha256(iid, tree_type, subtab))
             menu.add_command(label="Preview", command=lambda: self.preview_media(iid, tree_type, subtab))
             menu.add_command(label="Force Complete", command=lambda: self.force_complete_media(iid, tree_type, subtab))
@@ -1094,35 +1599,55 @@ class MediaWindow:
         menu.add_command(label="Changer dossier de téléchargement", command=self.change_download_directory)
         menu.post(event.x_root, event.y_root)
 
+
     def download_all_not_downloaded(self, tree_type):
-        threading.Thread(target=self._download_all_not_downloaded_thread, args=(tree_type,), daemon=True).start()
+        def _runner():
+            # Attendre proprement la fin de restore (max 10s) si l’event existe
+            evt = getattr(self, "_restore_done", None)
+            if hasattr(evt, "wait"):
+                try:
+                    evt.wait(timeout=10)
+                except Exception:
+                    pass
+            else:
+                # Fallback ultra court si pas d'event
+                time.sleep(0.2)
+
+            self._download_all_not_downloaded_thread(tree_type)
+
+        threading.Thread(target=_runner, daemon=True).start()
+
 
     def _download_all_not_downloaded_thread(self, tree_type):
-        log_info(f"[Download All {tree_type}] [Window {self.window_id}] Début lancement, running_downloads={self.running_downloads}, queue_size={len(self.download_queue)}")
+        log_info(
+            f"[Download All {tree_type}] [Window {self.window_id}] Début lancement, running_downloads={self.running_downloads}, queue_size={len(self.download_queue)}")
         to_enqueue = [
             m for m in self.medias
             if m.get("type") == tree_type and m.get("status") in ("Missing", "Paused", "Failed", "Incomplete")
-            and m not in self.download_queue
-            and m.get("status") not in ["Downloading", "Retrying", "Ignored"]
+               and m not in self.download_queue
+               and m.get("status") not in ["Downloading", "Retrying", "Ignored"]
         ]
         log_info(f"[Download All {tree_type}] [Window {self.window_id}] Lancement pour {len(to_enqueue)} médias éligibles")
         for media in to_enqueue:
             if self.is_closing or not self.is_active:
                 log_info(f"[Download All {tree_type}] [Window {self.window_id}] Arrêt : fenêtre fermée")
                 break
-            
+
             # Ajouter à la file
-            self.enqueue_media(media)
-            
+            self.enqueue_media(media, override=True)
+
             # Essayer de lancer immédiatement si possible
             if self.running_downloads < MAX_CONCURRENT_DOWNLOADS:
                 self.start_next_in_queue()
             else:
-                log_info(f"[Download All {tree_type}] [Window {self.window_id}] Limite atteinte ({self.running_downloads}/{MAX_CONCURRENT_DOWNLOADS}), en attente")
+                log_info(
+                    f"[Download All {tree_type}] [Window {self.window_id}] Limite atteinte ({self.running_downloads}/{MAX_CONCURRENT_DOWNLOADS}), en attente")
                 while self.running_downloads >= MAX_CONCURRENT_DOWNLOADS and self.is_active and not self.is_closing:
                     time.sleep(0.1)  # Attente plus courte pour réactivité
 
-        log_info(f"[Download All {tree_type}] [Window {self.window_id}] Tous les médias éligibles en file (queue_size={len(self.download_queue)})")
+        log_info(
+            f"[Download All {tree_type}] [Window {self.window_id}] Tous les médias éligibles en file (queue_size={len(self.download_queue)})")
+
 
     def pause_downloads(self, tree_type):
         with self.save_lock:
@@ -1134,6 +1659,7 @@ class MediaWindow:
                     self.refresh_media_row(media)
             self.running_downloads = sum(1 for m in self.download_queue if m.get("type") == tree_type)
             log_info(f"[Pause {tree_type}] Téléchargements arrêtés, file vidée, {self.running_downloads} restants")
+
 
     def preview_media(self, item_id, tree_type, subtab):
         tree = (self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
@@ -1166,6 +1692,7 @@ class MediaWindow:
         except Exception as e:
             log_error(f"[Preview] Erreur : {e}")
 
+
     def force_retry(self, item_id, tree_type, subtab):
         tree = (self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
                 self.video_completed_tree if tree_type == "video" and subtab == "completed" else
@@ -1186,6 +1713,7 @@ class MediaWindow:
         media["retry_count"] = media.get("retry_count", 0) + 1
         self.enqueue_download(item_id, tree_type, subtab)
         log_info(f"[FORCE RETRY] Ajout en queue : {media_name}")
+
 
     def open_selected_media(self, item_id, tree_type, subtab):
         tree = (self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
@@ -1216,6 +1744,7 @@ class MediaWindow:
         except Exception as e:
             log_error(f"[Open] Erreur à l'ouverture : {e}")
 
+
     def force_complete_media(self, item_id, tree_type, subtab):
         tree = (self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
                 self.video_completed_tree if tree_type == "video" and subtab == "completed" else
@@ -1238,7 +1767,8 @@ class MediaWindow:
 
         if not os.path.exists(tmp_path):
             if os.path.exists(final_path):
-                log_warning(f"[ForceComplete] Fichier tmp absent, mais {media_name} existe déjà → marquage forcé en Completed")
+                log_warning(
+                    f"[ForceComplete] Fichier tmp absent, mais {media_name} existe déjà → marquage forcé en Completed")
 
                 media["status"] = "Completed"
                 media["error"] = ""
@@ -1273,6 +1803,7 @@ class MediaWindow:
         except Exception as e:
             log_error(f"[ForceComplete] Rename échoué : {e}")
 
+
     def open_media_dir(self, item_id, tree_type, subtab):
         tree = (self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
                 self.video_completed_tree if tree_type == "video" and subtab == "completed" else
@@ -1284,11 +1815,13 @@ class MediaWindow:
         if os.path.exists(dir_path):
             subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", dir_path])
 
+
     def verify_sha256(self, item_id, tree_type, subtab):
         tree = (self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
                 self.video_completed_tree if tree_type == "video" and subtab == "completed" else
                 self.image_not_downloaded_tree if tree_type == "image" and subtab == "not_downloaded" else
                 self.image_completed_tree)
+
         media = next((m for m in self.medias if m.get("name") == tree.item(item_id, "values")[0]), None)
         if not media:
             log_error(f"[SHA256] Média non trouvé pour {item_id}")
@@ -1307,83 +1840,59 @@ class MediaWindow:
             return
 
         ok = verify_hash_from_cdn_path(path, media.get("url", ""))
-        media["hash_check"] = "" if ok else ""
-        media["status"] = "Completed" if ok else "Failed"
-        media["local_size"] = os.path.getsize(path)
+        media["hash_check"] = "" if ok else "Mismatch"
+        try:
+            media["local_size"] = os.path.getsize(path)
+        except Exception:
+            pass
 
-        if ok and path.endswith(".tmp"):
+        if ok:
+            # si c’était un .tmp → rename et finalise
+            if path.endswith(".tmp"):
+                try:
+                    os.rename(path, final_path)
+                    media["name"] = os.path.basename(final_path)
+                except Exception as e:
+                    log_error(f"[SHA256] Rename .tmp échoué : {e}")
+            media["status"] = "Completed"
+            media["percent"] = 100
+            media["speed"] = "0 B/s"
+        else:
+            # ❗ ne pas marquer Failed ici : un check n'est pas un échec réseau
+            if media.get("status") not in ("Downloading", "Retrying"):
+                media["status"] = "Incomplete"
+            # option: met à jour percent si la taille HTTP est connue
             try:
-                os.rename(path, final_path)
-                media["name"] = os.path.basename(final_path)
-            except Exception as e:
-                log_error(f"[SHA256] Rename .tmp échoué : {e}")
+                total = int(media.get("size_http") or 0)
+                if total > 0:
+                    media["percent"] = int((media.get("local_size", 0) * 100) / total)
+            except Exception:
+                pass
 
-        log_info(f"[SHA256] {media['name']} → {media['hash_check']}")
+        log_info(f"[SHA256] {media['name']} → {media.get('hash_check', '')}")
         self.refresh_media_row(media, move_to_completed=ok)
         self.save_json()
 
-    def download_all(self):
-        self.download_all_generic()
 
-    def _download_all_thread(self):
-        to_enqueue = [m for m in self.medias if m.get("status") in ["Missing", "Failed", "Incomplete", "Paused"]]
-        self.enqueue_media_batch(to_enqueue)
+    def download_all(self):
+        # tout: vidéos + images
+        self.download_all_not_downloaded("video")
+        self.download_all_not_downloaded("image")
+
 
     def download_all_videos(self):
-        self.download_all_generic(filter_func=is_video)
+        self.download_all_not_downloaded("video")
 
-    def _download_all_videos_thread(self):
-        to_enqueue = [m for m in self.medias if is_video(m) and m.get("status") in ["Missing", "Failed", "Incomplete", "Paused"]]
-        self.enqueue_media_batch(to_enqueue)
 
     def download_all_pictures(self):
-        self.download_all_generic(filter_func=lambda m: m.get("type") == "image")
+        self.download_all_not_downloaded("image")
 
-    def _download_all_pictures_thread(self):
-        to_enqueue = [m for m in self.medias if m.get("type") == "image" and m.get("status") in ["Missing", "Failed", "Incomplete", "Paused"]]
-        self.enqueue_media_batch(to_enqueue)
 
-    def download_all_generic(self, filter_func=None):
-        global running_downloads
-
-        def eligible(media):
-            return media.get("status") in ["Missing", "Waiting"] and (filter_func(media) if filter_func else True)
-
-        self.download_queue = [m for m in self.medias if eligible(m)]
-        log_info(f"[POOL] 🎯 {len(self.download_queue)} fichiers éligibles")
-
-        def start_next():
-            global running_downloads
-            if not self.download_queue:
-                return
-
-            with queue_lock:
-                if running_downloads >= MAX_CONCURRENT_DOWNLOADS:
-                    return
-                media_item = self.download_queue.pop(0)
-                running_downloads += 1
-                log_info(f"[POOL] ▶️ Start {media_item.get('filename')} (en cours : {running_downloads})")
-
-            def worker():
-                global running_downloads
-                try:
-                    self.download_file_thread(media_item)
-                finally:
-                    with queue_lock:
-                        running_downloads -= 1
-                        log_info(f"[POOL] 🔁 Fin thread (restant : {running_downloads})")
-                    self.root.after(50, start_next)  # relance le suivant
-
-            threading.Thread(target=worker, daemon=True).start()
-
-        # Démarre jusqu'à MAX
-        for _ in range(MAX_CONCURRENT_DOWNLOADS):
-            start_next()
-
-    def enqueue_media(self, media):
+    def enqueue_media(self, media, override: bool = False):
         media_name = media.get("name")
-        
-        if getattr(self, "restoring", False):
+
+        # 🔧 Ne bloque pas les actions utilisateur
+        if getattr(self, "restoring", False) and not override:
             log_info(f"[Queue] Skip enqueue {media_name} (restoration phase)")
             return
 
@@ -1417,6 +1926,14 @@ class MediaWindow:
 
         log_error(f"[Queue] Item non trouvé ou supprimé dans le TreeView pour : {media_name}")
 
+
+    def monitor_threads_background(self):
+        while self.is_active:
+            time.sleep(60)
+            active_threads = threading.enumerate()
+            log_info(f"[THREAD-MONITOR] {len(active_threads)} threads actifs: {[t.name for t in active_threads]}")
+
+
     def enqueue_download(self, item_id, tree_type, subtab):
         tree = (self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
                 self.video_completed_tree if tree_type == "video" and subtab == "completed" else
@@ -1424,7 +1941,8 @@ class MediaWindow:
                 self.image_completed_tree)
         media_name = tree.item(item_id, "values")[0]
         media = next((m for m in self.medias if m.get("name") == media_name), None)
-        log_info(f"[Queue] [Window {self.window_id}] Ajout de {media_name} à la file (queue_size={len(self.download_queue)})")
+        log_info(
+            f"[Queue] [Window {self.window_id}] Ajout de {media_name} à la file (queue_size={len(self.download_queue)})")
 
         if not media:
             log_error(f"[Queue] [Window {self.window_id}] Média non trouvé pour : {media_name}")
@@ -1459,109 +1977,110 @@ class MediaWindow:
 
         self.refresh_media_row(media)
         self.download_queue.append(media)
-        log_info(f"[Queue] [Window {self.window_id}] {media_name} → Ajouté à la file de téléchargement (queue_size={len(self.download_queue)})")
+        log_info(
+            f"[Queue] [Window {self.window_id}] {media_name} → Ajouté à la file de téléchargement (queue_size={len(self.download_queue)})")
+
 
     def refresh_media_row(self, media, move_to_completed=False):
-        log_info(f"[REFRESH] [Window {self.window_id}] Tentative de mise à jour pour {media.get('name')}, speed={media.get('speed')}")
+        # Bloquer si fermeture ou UI morte
         if self.is_closing or not self.is_active or not self.check_ui_alive():
-            log_info(f"[REFRESH] [Window {self.window_id}] 🚫 Mise à jour ignorée pour {media.get('name')}")
-            return
-        if self.is_closing and media.get("status") == "Paused":
-            log_info(f"[REFRESH] Ignoré pour {media.get('name')} : fenêtre fermée et statut Paused")
             return
 
         media_name = media.get("name")
         if not media_name:
-            log_warning(f"[REFRESH] [Window {self.window_id}] Média sans nom, ignoré")
             return
+
+        now = time.time()
+        last_update = self.last_ui_update.get(media_name, 0)
+        if (now - last_update < 0.2) and not move_to_completed and media.get("status") != "Completed":
+            return
+        self.last_ui_update[media_name] = now
 
         tree_type = "video" if is_video(media) else "image"
         status = media.get("status", "Missing")
         downloaded = media.get("local_size", 0)
         total = media.get("size_http", 0)
         percent_val = int((downloaded / total) * 100) if total else 0
-        speed = media.get("speed", "0 B/s")
 
+        # Si complet, on force move_to_completed
         if percent_val >= 100 and status == "Completed":
             move_to_completed = True
 
-        subtab = "completed" if move_to_completed or (status == "Completed" and percent_val >= 100) else "not_downloaded"
-        log_info(f"[REFRESH] [Window {self.window_id}] {media_name} → cible : {tree_type}/{subtab} (status={status}, percent={percent_val}%)")
+        subtab = "completed" if move_to_completed else "not_downloaded"
 
-        tree = (
-            self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
+        target_tree = (
             self.video_completed_tree if tree_type == "video" and subtab == "completed" else
-            self.image_not_downloaded_tree if tree_type == "image" and subtab == "not_downloaded" else
-            self.image_completed_tree
+            self.video_not_downloaded_tree if tree_type == "video" else
+            self.image_completed_tree if subtab == "completed" else
+            self.image_not_downloaded_tree
         )
 
         old_subtab = "not_downloaded" if subtab == "completed" else "completed"
         old_tree = (
             self.video_not_downloaded_tree if tree_type == "video" and old_subtab == "not_downloaded" else
-            self.video_completed_tree if tree_type == "video" and old_subtab == "completed" else
-            self.image_not_downloaded_tree if tree_type == "image" and old_subtab == "not_downloaded" else
+            self.video_completed_tree if tree_type == "video" else
+            self.image_not_downloaded_tree if old_subtab == "not_downloaded" else
             self.image_completed_tree
         )
 
+        # Supprimer de l'ancien tree si nécessaire
         old_key = (media_name, tree_type, old_subtab)
         old_item_id = self.item_id_cache.get(old_key)
-        if old_item_id and old_tree.winfo_exists():
+        if old_item_id and old_tree.exists(old_item_id):
             try:
-                if old_tree.exists(old_item_id):
-                    old_tree.delete(old_item_id)
-                    log_info(f"[REFRESH] [Window {self.window_id}] Supprimé {media_name} de {tree_type}/{old_subtab}")
-                del self.item_id_cache[old_key]
+                old_tree.delete(old_item_id)
+            except Exception:
+                pass
+            self.item_id_cache.pop(old_key, None)
+
+        # Valeurs à afficher
+        if subtab == "not_downloaded":
+            values = (
+                media_name,
+                format_bytes(downloaded),
+                format_bytes(total),
+                media.get("speed", "0 B/s"),
+                render_progress_bar(percent_val),
+                status,
+                media.get("hash_check", ""),
+                os.path.splitext(media_name)[1][1:].lower(),
+                media.get("error", ""),
+                media.get("url", ""),
+                str(media.get("retry_count", 0))
+            )
+        else:  # completed
+            values = (
+                media_name,
+                format_bytes(downloaded),
+                format_bytes(total),
+                render_progress_bar(percent_val),
+                status,
+                media.get("hash_check", ""),
+                os.path.splitext(media_name)[1][1:].lower(),
+                media.get("error", ""),
+                media.get("url", ""),
+                str(media.get("retry_count", 0))
+            )
+
+        # Insertion / mise à jour
+        tree_key = (media_name, tree_type, subtab)
+        item_id = self.item_id_cache.get(tree_key)
+
+        def _do_update():
+            if self.is_closing or not self.is_active or not self.check_ui_alive():
+                return
+            try:
+                if not item_id or not target_tree.exists(item_id):
+                    new_id = target_tree.insert("", "end", values=values, tags=(f"{status.lower()}.{tree_type}",))
+                    self.item_id_cache[tree_key] = new_id
+                else:
+                    self.safe_update_tree(item_id, tree_type, subtab, values=values,
+                                          tags=(f"{status.lower()}.{tree_type}",))
             except Exception as e:
-                log_warning(f"[REFRESH] [Window {self.window_id}] Erreur suppression {media_name} de {tree_type}/{old_subtab}: {e}")
+                log_warning(f"[REFRESH] Erreur update {media_name} : {e}")
 
-        tree_key = f"{tree_type}_{subtab}"
-        if tree_key not in self.loaded_treeviews and subtab == "completed":
-            log_info(f"[REFRESH] [Window {self.window_id}] {tree_key} non chargé, insertion unique pour {media_name}")
-            self.insert_single_media(media, tree_type, subtab)
-            return
+        self.root.after_idle(_do_update)
 
-        item_id = self.item_id_cache.get((media_name, tree_type, subtab))
-        if not item_id or not tree.exists(item_id):
-            log_info(f"[REFRESH] [Window {self.window_id}] {media_name} non trouvé dans {tree_type}/{subtab}, insertion")
-            self.insert_single_media(media, tree_type, subtab)
-            return
-
-        # Ajuster les valeurs en fonction de la présence de la colonne speed
-        if tree in [self.video_not_downloaded_tree, self.image_not_downloaded_tree]:
-            values = (
-                media_name,
-                format_bytes(downloaded),
-                format_bytes(total),
-                speed,
-                render_progress_bar(percent_val),
-                status,
-                media.get("hash_check", ""),
-                os.path.splitext(media_name)[1][1:].lower(),
-                media.get("error", ""),
-                media.get("url", ""),
-                str(media.get("retry_count", 0))
-            )
-        else:
-            values = (
-                media_name,
-                format_bytes(downloaded),
-                format_bytes(total),
-                render_progress_bar(percent_val),
-                status,
-                media.get("hash_check", ""),
-                os.path.splitext(media_name)[1][1:].lower(),
-                media.get("error", ""),
-                media.get("url", ""),
-                str(media.get("retry_count", 0))
-            )
-
-        try:
-            self.safe_update_tree(item_id, tree_type, subtab, values=values)
-            combined_tag = f"{status.lower()}.{tree_type}"
-            self.safe_update_tree(item_id, tree_type, subtab, tags=(combined_tag,))
-            log_info(f"[REFRESH] [Window {self.window_id}] Mis à jour {media_name} dans {tree_type}/{subtab} avec speed={speed}")
-        except Exception as e:
-            log_warning(f"[REFRESH] [Window {self.window_id}] Erreur mise à jour {media_name} dans {tree_type}/{subtab}: {e}")
 
     def download_selected_file(self):
         tree = self.get_current_video_tree()
@@ -1571,7 +2090,9 @@ class MediaWindow:
         else:
             messagebox.showwarning("Aucun fichier", "Veuillez sélectionner un fichier dans la liste.")
 
+
     def download_media(self, item_id, tree_type, subtab):
+        # 1) Garde-fous UI
         if self.is_closing:
             log_info(f"[DL] 🚫 Téléchargement annulé car {self.username} fermé")
             return
@@ -1582,29 +2103,32 @@ class MediaWindow:
             log_warning("[Download] Treeview indisponible")
             return
 
+        # 2) Résolution du tree ciblé
         tree = (self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
                 self.video_completed_tree if tree_type == "video" and subtab == "completed" else
                 self.image_not_downloaded_tree if tree_type == "image" and subtab == "not_downloaded" else
                 self.image_completed_tree)
-        
+
         if not tree.exists(item_id):
             log_warning(f"[DL] Item {item_id} non trouvé dans {tree_type}/{subtab}")
             return
 
+        # 3) Retrouver le média
         media_name = tree.item(item_id, "values")[0]
         media = next((m for m in self.medias if m.get("name") == media_name), None)
         if not media:
             log_error(f"[DL] Média non trouvé pour {media_name}")
             return
-
         if media.get("status") == "Completed":
             log_info(f"[DL] Ignoré : {media_name} déjà Completed")
             return
+        if media.get("status") in ("Downloading", "Retrying"):
+            log_info(f"[DL] Ignoré : {media_name} déjà en cours ({media.get('status')})")
+            return
 
+        # 4) Préparer les infos de reprise (affichage)
         subdir = self.video_dir if is_video(media) else self.image_dir
         tmp_path = os.path.join(subdir, media_name + ".tmp")
-        final_path = os.path.join(subdir, media_name)
-
         if os.path.exists(tmp_path):
             current_size = os.path.getsize(tmp_path)
             media["local_size"] = current_size
@@ -1614,70 +2138,29 @@ class MediaWindow:
             media["local_size"] = 0
             media["percent"] = 0
 
-        media["status"] = "Downloading"
+        # 5) Mettre en "Waiting", pousser dans la file, puis lancer le processeur
+        media["status"] = "Waiting"
         media["error"] = ""
+        media["speed"] = ""
+        media.setdefault("retry_count", 0)
         self.refresh_media_row(media)
 
-        def download_callback(progress, speed, total_size):
-            if self.is_closing:
-                return False
-            media["local_size"] = progress
-            media["speed"] = speed if speed else "0 B/s"
-            media["size_http"] = total_size
-            percent = int((progress / total_size) * 100) if total_size else 0
-            media["percent"] = percent
-            media["status"] = "Downloading" if os.path.exists(tmp_path) else "Completed"
-            if percent >= 100:
-                try:
-                    os.rename(tmp_path, final_path)
-                    media["status"] = "Completed"
-                    log_info(f"[DL] Renommé {tmp_path} → {final_path}")
-                except Exception as e:
-                    log_error(f"[DL] Échec renommage : {e}")
-                    media["status"] = "Incomplete"  # temporairement, le renommage échoue
-            self.refresh_media_row(media)  # Rafraîchissement à chaque mise à jour
-            return True
+        # éviter doublons dans la file
+        if media not in self.download_queue:
+            self.download_queue.append(media)
+            log_info(
+                f"[Queue] [Window {self.window_id}] {media_name} → Ajouté à la file (queue_size={len(self.download_queue)})")
+        else:
+            log_info(f"[Queue] [Window {self.window_id}] {media_name} déjà en file")
 
-        def error_callback(error_msg):
-            if self.is_closing:
-                return
-            media["status"] = "Failed"
-            media["error"] = error_msg
-            self.refresh_media_row(media)
-            log_error(f"[DL] Erreur pour {media_name}: {error_msg}")
+        # 6) Démarrer si des slots sont dispo (respecte MAX_CONCURRENT_DOWNLOADS + submit_unique)
+        self.start_next_in_queue()
 
-        url = media.get("url", "")
-        if not url:
-            alternative_urls = generate_alternative_urls(media_name)
-            for alt_url in alternative_urls:
-                try:
-                    response = requests.head(alt_url, timeout=10)
-                    if response.status_code == 200:
-                        url = alt_url
-                        media["url"] = url
-                        break
-                except Exception:
-                    continue
-            if not url:
-                error_callback("Aucune URL valide trouvée")
-                return
-
-        def should_stop():
-            return self.is_closing
-
-        threading.Thread(target=lambda: download_file(
-            url, tmp_path, download_callback, resume=True, should_stop=should_stop, window_id=self.window_id
-        ), daemon=True).start()
-        log_info(f"[DL] Démarré téléchargement de {media_name} depuis {url}")
-
-    def check_all_completed_files(self, tree_type):
-        completed_media = [m for m in self.medias if m.get("type") == tree_type and m.get("status") == "Completed"]
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            executor.map(self.verify_sha256_for_media, completed_media)
 
     def verify_sha256_for_media(self, media):
         subdir = self.video_dir if is_video(media) else self.image_dir
         final_path = os.path.join(subdir, media["name"])
+
         if not os.path.exists(final_path):
             media["status"] = "Missing"
             media["hash_check"] = ""
@@ -1686,37 +2169,169 @@ class MediaWindow:
 
         ok = verify_hash_from_cdn_path(final_path, media.get("url", ""))
         media["hash_check"] = "" if ok else "Mismatch"
-        media["status"] = "Completed" if ok else "Failed"
-        media["local_size"] = os.path.getsize(final_path)
+
+        try:
+            media["local_size"] = os.path.getsize(final_path)
+        except Exception:
+            pass
+
+        if ok:
+            media["status"] = "Completed"
+            media["percent"] = 100
+            media["speed"] = "0 B/s"
+        else:
+            # ❗ pas de Failed ici non plus
+            if media.get("status") not in ("Downloading", "Retrying"):
+                media["status"] = "Incomplete"
+            try:
+                total = int(media.get("size_http") or 0)
+                if total > 0:
+                    media["percent"] = int((media.get("local_size", 0) * 100) / total)
+            except Exception:
+                pass
+
         self.refresh_media_row(media)
         self.save_json()
 
-    def check_sha256_all_video_not_downloaded(self):
-        self.check_sha256_for_tree(self.video_not_downloaded_tree)
-
-    def check_sha256_all_image_not_downloaded(self):
-        self.check_sha256_for_tree(self.image_not_downloaded_tree)
-
-    def check_sha256_for_tree(self, tree):
-        selected_items = tree.selection()
-        if not selected_items:
-            messagebox.showwarning("Aucun fichier", "Veuillez sélectionner au moins un fichier.")
-            return
-        for item_id in selected_items:
-            media_name = tree.item(item_id, "values")[0]
-            media = next((m for m in self.medias if m.get("name") == media_name), None)
-            if media:
-                self.verify_sha256(item_id, "video" if tree in [self.video_not_downloaded_tree, self.video_completed_tree] else "image",
-                                 "not_downloaded" if tree in [self.video_not_downloaded_tree, self.image_not_downloaded_tree] else "completed")
-
     def ignore_selected_file(self):
+        tree, tree_type, subtab = self.get_current_tree_with_context()
+        item_id = self.get_selected_item_id(tree)
+        if not item_id:
+            messagebox.showwarning("Aucun fichier", "Veuillez sélectionner un fichier dans la liste.")
+            return
+
+        media_name = tree.item(item_id, "values")[0]
+        media = next((m for m in self.medias if m.get("name") == media_name), None)
+        if not media:
+            log_warning("[Ignore] Média non trouvé")
+            return
+
+        with self.suspend_sorting():
+            # Marque comme ignoré
+            media["status"] = "Ignored"
+            media["error"] = ""
+            media["percent"] = 0
+            media["local_size"] = 0
+            media["speed"] = ""
+            media["hash_check"] = ""
+
+        # Supprime éventuels fichiers locaux
+        subdir = self.video_dir if is_video(media) else self.image_dir
+        final_path = os.path.join(subdir, media_name)
+        tmp_path = final_path + ".tmp"
+        for path in [final_path, tmp_path]:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                    log_info(f"[Ignore] 🗑️ Fichier supprimé : {path}")
+                except Exception as e:
+                    log_warning(f"[Ignore] ⚠️ Erreur suppression {path} : {e}")
+
+        # Refresh minimal (il passera dans l'onglet Ignored)
+        self.refresh_media_row(media, move_to_completed=False)
+        self.save_json()
+
+        # rafraîchir les 3 onglets du type courant
+        self.refresh_tabs_for_type(tree_type)
+
+
+    def unignore_selected_file(self):
+        tree, tree_type, subtab = self.get_current_tree_with_context()
+        item_id = self.get_selected_item_id(tree)
+        if not item_id:
+            messagebox.showwarning("Aucun fichier", "Veuillez sélectionner un fichier dans la liste.")
+            return
+
+        media_name = tree.item(item_id, "values")[0]
+        media = next((m for m in self.medias if m.get("name") == media_name), None)
+        if not media:
+            log_warning("[Unignore] Média non trouvé")
+            return
+
+        # Si le fichier existe localement → Completed, sinon Missing
+        subdir = self.video_dir if is_video(media) else self.image_dir
+        final_path = os.path.join(subdir, media_name)
+        if os.path.exists(final_path):
+            media["status"] = "Completed"
+            media["local_size"] = os.path.getsize(final_path)
+            media["percent"] = 100
+            media["error"] = ""
+            media["speed"] = ""
+            media["hash_check"] = ""
+            move_to_completed = True
+        else:
+            media["status"] = "Missing"
+            media["local_size"] = 0
+            media["percent"] = 0
+            media["error"] = ""
+            media["speed"] = ""
+            media["hash_check"] = ""
+            move_to_completed = False
+
+        self.refresh_media_row(media, move_to_completed=move_to_completed)
+        self.save_json()
+
+        # rafraîchir les 3 onglets du type courant
+        self.refresh_tabs_for_type(tree_type)
+
+
+    def ignore_all_missing(self, media_type: str):
+        count = 0
+        for media in self.medias:
+            if media.get("type") != media_type: continue
+            if media.get("status") == "Completed": continue
+
+            name = media.get("name", "")
+            if not name: continue
+
+            subdir = self.video_dir if media_type == "video" else self.image_dir
+            final_path = os.path.join(subdir, name)
+            tmp_path = final_path + ".tmp"
+            if os.path.exists(final_path) or os.path.exists(tmp_path):
+                continue
+
+            media["status"] = "Ignored"
+            media["error"] = ""
+            media["percent"] = 0
+            media["local_size"] = 0
+            media["speed"] = ""
+            media["hash_check"] = ""
+            self.remove_media_from_all_tabs(name, media_type)
+            self.insert_single_media(media, media_type, "ignored")
+            count += 1
+
+        # ✅ Sauvegarde toujours si on a modifié des choses
+        if count > 0:
+            # sync de la structure + flush/replace garanti par save_json
+            self.save_json()
+            log_info(f"[IGNORE-ALL] {count} éléments '{media_type}' marqués Ignored (missing)")
+        else:
+            log_info(f"[IGNORE-ALL] Aucun élément éligible trouvé pour '{media_type}'")
+
+
+    def refresh_tabs_for_type(self, media_type: str):
+        try:
+            self.insert_media_in_treeview(media_type, "not_downloaded")
+        except Exception as e:
+            log_warning(f"[REFRESH-TABS] {media_type}/not_downloaded: {e}")
+        try:
+            self.insert_media_in_treeview(media_type, "completed")
+        except Exception as e:
+            log_warning(f"[REFRESH-TABS] {media_type}/completed: {e}")
+        try:
+            self.insert_media_in_treeview(media_type, "ignored")
+        except Exception as e:
+            log_warning(f"[REFRESH-TABS] {media_type}/ignored: {e}")
+
+
+    def restart_selected_file(self):
         tree = self.get_current_video_tree()
         item_id = self.get_selected_item_id(tree)
         if item_id:
             media_name = tree.item(item_id, "values")[0]
             media = next((m for m in self.medias if m.get("name") == media_name), None)
             if media:
-                media["status"] = "Ignored"
+                media["status"] = "Waiting"
                 media["error"] = ""
                 media["percent"] = 0
                 media["local_size"] = 0
@@ -1732,245 +2347,267 @@ class MediaWindow:
                     if os.path.exists(path):
                         try:
                             os.remove(path)
-                            log_info(f"[Ignore] 🗑️ Fichier supprimé : {path}")
+                            log_info(f"[Restart] 🗑️ Fichier supprimé : {path}")
                         except Exception as e:
-                            log_warning(f"[Ignore] ⚠️ Erreur suppression {path} : {e}")
+                            log_warning(f"[Restart] ⚠️ Erreur suppression {path} : {e}")
 
                 self.refresh_media_row(media, move_to_completed=False)
                 self.save_json()
         else:
             messagebox.showwarning("Aucun fichier", "Veuillez sélectionner un fichier dans la liste.")
 
+
     def open_video_folder(self):
         if os.path.exists(self.video_dir):
             subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", self.video_dir])
+
 
     def open_image_folder(self):
         if os.path.exists(self.image_dir):
             subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", self.image_dir])
 
+
     def get_current_video_tree(self):
         current_tab = self.video_notebook.tab(self.video_notebook.select(), "text").lower()
         return self.video_not_downloaded_tree if current_tab == "not downloaded" else self.video_completed_tree
+
 
     def get_selected_item_id(self, tree):
         selected = tree.selection()
         return selected[0] if selected else None
 
-    def get_all_sizes_thread(self, media_type):
-        threading.Thread(target=self.get_all_sizes, args=(media_type,), daemon=True).start()
-
-    def get_all_sizes(self, media_type):
-        tree = self.video_not_downloaded_tree if media_type == "video" else self.image_not_downloaded_tree
-        for item_id in tree.get_children():
-            self.update_file_size(item_id, media_type, "not_downloaded")
 
     def download_file_thread(self, media):
-        log_info(f"[DL] [Window {self.window_id}] 🧵 Thread DL lancé pour {media.get('name')}")
-        if self.is_closing or not self.is_active:
-            log_info(f"[DL] [Window {self.window_id}] Profil {self.username} fermé, thread annulé")
-            return
-
-        name = media.get("name")
-        url = media.get("url")
-
-        try:
-            subdir = self.video_dir if is_video(media) else self.image_dir
-        except Exception as e:
-            log_error(f"[DIR] [Window {self.window_id}] Erreur détection type pour {name}: {e}")
-            subdir = self.local_dir
-
-        dest_path = os.path.join(subdir, name)
-        tmp_path = dest_path + ".tmp"
-        log_info(f"[DL] [Window {self.window_id}] {name} → Dir: {subdir}")
-        media["retry_count"] = media.get("retry_count", 0)
-        has_received_data = False
-        progress_lock = threading.Lock()
-        last_progress_update = 0
-        min_progress_interval = 0.5
-        thread_timeout = 180
-        retries = 0
-
-        def on_progress(downloaded, speed_str, total):
-            nonlocal has_received_data, last_progress_update
-            if self.is_closing or not self.is_active or not self.check_ui_alive():
-                log_info(f"[DL] [Window {self.window_id}] Annulation update GUI pour {name}")
-                return
-            current_time = time.time()
-            with progress_lock:
-                if current_time - last_progress_update < min_progress_interval:
-                    return
-                last_progress_update = current_time
-                try:
-                    if not media.get("size_http") and total:
-                        media["size_http"] = total
-                    media["local_size"] = downloaded
-                    media["percent"] = int((downloaded / total) * 100) if total else 0
-                    media["speed"] = speed_str
-                    media["last_downloaded"] = downloaded
-
-                    if downloaded > 0:
-                        has_received_data = True
-                        if media["status"] != "Downloading":
-                            media["status"] = "Downloading"
-                            log_info(f"[DL] [Window {self.window_id}] {name} → Téléchargement démarré")
-
-                    if self.check_ui_alive() and not self.is_closing:
-                        log_info(f"[DL] [Window {self.window_id}] Mise à jour progression : {name} → {media['percent']}% ({media['local_size']}/{media['size_http']}, speed={media['speed']}, status={media['status']})")
-                        self.refresh_media_row(media)
-                except Exception as e:
-                    log_error(f"[DL] [Window {self.window_id}] Erreur dans on_progress pour {name} : {e}")
+        """Téléchargement basé sur la queue, autonome (résout le chemin, gère .tmp, décrémente les compteurs)."""
+        import time, os, platform
+        from utils.network_utils import generate_alternative_urls
+        import requests
 
         def should_stop():
             return self.is_closing or not self.is_active or not self.queue_processor_running
 
-        def run_download():
-            nonlocal retries
-            name = media.get("name")
-            log_info(f"[DL] [Window {self.window_id}] {name} → 📥 File en queue")
-            max_retries = 3000000
-
-            while self.is_active and not self.is_closing and self.queue_processor_running and retries < max_retries:
+        # Résolution URL
+        url = media.get("url") or ""
+        if not url:
+            for alt in generate_alternative_urls(media.get("name", "")):
                 try:
-                    # Définir le statut initial à "Downloading" pour chaque tentative
-                    #media["status"] = "Retrying" if retries > 0 else "Downloading"
-                    media["status"] = "Downloading" # Retrait des retryning
-                    log_info(f"[DL] [Window {self.window_id}] {name} → Tentative {retries+1}/{max_retries}, status={media['status']}")
-                    if self.check_ui_alive() and not self.is_closing:
-                        self.refresh_media_row(media)
-
-                    success, err = download_file(
-                        url,
-                        tmp_path,
-                        resume=True,
-                        on_progress=on_progress,
-                        should_stop=should_stop,
-                        window_id=self.window_id
-                    )
-
-                    if not success:
-                        raise Exception(err or "Téléchargement interrompu")
-
-                    if not os.path.exists(tmp_path):
-                        raise Exception("Fichier .tmp manquant après téléchargement")
-
-                    downloaded_size = os.path.getsize(tmp_path)
-                    expected_size = media.get("size_http", 0)
-                    if expected_size and downloaded_size < expected_size * 0.98:
-                        raise Exception(f"Téléchargement incomplet : {downloaded_size} / {expected_size} bytes")
-
-                    if not verify_hash_from_cdn_path(tmp_path, url):
-                        raise Exception("Checksum invalide")
-
-                    if is_video(media) and not is_valid_video(tmp_path):
-                        raise Exception("Fichier vidéo corrompu ou invalide")
-                    elif media.get("type") == "image" and not is_valid_image(tmp_path):
-                        raise Exception("Fichier image corrompu ou invalide")
-
-                    os.rename(tmp_path, dest_path)
-
-                    media["status"] = "Completed"
-                    media["percent"] = 100
-                    media["error"] = ""
-                    media["local_size"] = os.path.getsize(dest_path)
-                    media["size_http"] = media.get("size_http", downloaded_size)
-                    media["hash_check"] = ""
-                    media["speed"] = "0 B/s"
-
-                    log_info(f"[DL] [Window {self.window_id}] ✅ Téléchargement terminé pour {name}")
-                    log_info(f"[DL] [Window {self.window_id}] Final : {name} → status={media['status']}, percent={media['percent']}%, local_size={media['local_size']}, size_http={media['size_http']}, speed={media['speed']}")
-
-                    if self.check_ui_alive() and not self.is_closing:
-                        self.refresh_media_row(media, move_to_completed=True)
-                        self.save_json()
-
-                    break
-
-                except Exception as e:
-                    media["error"] = str(e)
-                    media["status"] = "Failed"
-                    media["percent"] = 0
-                    media["speed"] = "0 B/s"
-                    log_error(f"[DL] [Window {self.window_id}] {name} → ❌ Échec : {e}")
-
-                    if os.path.exists(tmp_path):
-                        tmp_size = os.path.getsize(tmp_path)
-                        if tmp_size < 1024:
-                            try:
-                                os.remove(tmp_path)
-                                log_info(f"[DL] [Window {self.window_id}] 🗑️ .tmp supprimé (taille trop faible : {tmp_size} bytes)")
-                            except Exception as remove_err:
-                                log_warning(f"[DL] [Window {self.window_id}] ⚠️ Échec suppression .tmp : {remove_err}")
-                        else:
-                            log_info(f"[DL] [Window {self.window_id}] ⏸️ .tmp conservé malgré l’échec (taille: {tmp_size} bytes)")
-
-                    retries += 1
-                    if retries < max_retries:
-                        log_warning(f"[Retry] [Window {self.window_id}] {name} ({retries}/{max_retries}) nouvelle tentative dans 2s")
-                        time.sleep(2)
-                    else:
-                        log_error(f"[DL] [Window {self.window_id}] {name} → ⛔ Échec définitif après {max_retries} tentatives")
-                        time.sleep(2)
-                        #break
-
-            if media["status"] != "Completed":
-                media["status"] = "Failed"
-                media["error"] = "Échec après plusieurs tentatives" if retries >= max_retries else media.get("error", "")
-                media["percent"] = 0
-                media["speed"] = "0 B/s"
-                if self.check_ui_alive() and not self.is_closing:
-                    self.refresh_media_row(media)
-
-        download_thread = threading.Thread(target=run_download, daemon=True)
-        download_thread.start()
-        download_thread.join(timeout=thread_timeout)
-
-        if download_thread.is_alive():
-            log_error(f"[DL] [Window {self.window_id}] {name} → Thread timed out après {thread_timeout}s")
+                    r = requests.head(alt, timeout=8)
+                    if r.status_code == 200:
+                        url = alt
+                        media["url"] = url
+                        break
+                except Exception:
+                    pass
+        if not url:
             media["status"] = "Failed"
-            media["error"] = "Thread timed out"
-            media["percent"] = 0
-            media["speed"] = "0 B/s"
-            if self.check_ui_alive() and not self.is_closing:
+            media["error"] = "Aucune URL valide"
+            self.refresh_media_row(media)
+            # décrément via finally si on a pris les sémaphores; ici on ne les a pas encore → décrémente direct
+            self.decrement_running_downloads()
+            return
+
+        # Chemins
+        subdir = self.video_dir if is_video(media) else self.image_dir
+        os.makedirs(subdir, exist_ok=True)
+        final_path = os.path.join(subdir, media["name"])
+        tmp_path = final_path + ".tmp"
+
+        # Marque en cours (premier affichage)
+        media["status"] = "Downloading"
+        media["error"] = ""
+        if os.path.exists(tmp_path):
+            media["local_size"] = os.path.getsize(tmp_path)
+        else:
+            media["local_size"] = media.get("local_size", 0) or 0
+        self.refresh_media_row(media)
+
+        # Progress callback
+        last_ui = 0.0
+
+        def on_progress(downloaded, speed_str, total):
+            nonlocal last_ui
+            if should_stop():
+                return
+            media["local_size"] = downloaded
+            if total and not media.get("size_http"):
+                media["size_http"] = total
+            media["speed"] = speed_str or "0 B/s"
+            if time.time() - last_ui > 0.2:
+                last_ui = time.time()
                 self.refresh_media_row(media)
 
-        self.decrement_running_downloads()
-        log_info(f"[DL] [Window {self.window_id}] {name} → Thread terminé")
+        # helper local pour classifier les erreurs transitoires
+        def is_transient_error(err_msg: str) -> bool:
+            if not err_msg:
+                return True
+            em = err_msg.lower()
+            transient_keys = [
+                "timeout", "timed out", "connection", "reset", "temporar", "unreachable",
+                "403", "429", "502", "503", "504", "chunked", "throttle", "broken pipe"
+            ]
+            return any(k in em for k in transient_keys)
 
-        if self.check_ui_alive() and not self.is_closing:
-            self.save_json()
+        max_retries = int(media.get("max_retries", 15))
+        delay = float(RETRY_DELAY_SECONDS)
+        backoff = 1.0
 
-        self.root.after(50, self.start_next_in_queue)
+        # Sémaphores globaux & fenêtre (⚠️ conserve ces objets tels qu’ils existent chez toi)
+        wsem = window_sem(self.window_id, per_window_max=MAX_CONCURRENT_DOWNLOADS)
+        with GLOBAL_SEM, wsem:
+            try:
+                attempt = 1
+                while attempt <= max_retries:
+                    if should_stop():
+                        media["status"] = "Paused"
+                        media["speed"] = "0 B/s"
+                        self.refresh_media_row(media)
+                        return
+
+                    media["status"] = "Downloading" if attempt == 1 else "Retrying"
+                    # Reset external retry counter when a new download starts
+                    if attempt == 1 and media.get("retry_count", 0):
+                        media["retry_count"] = 0
+                        try:
+                            self.refresh_media_row(media)
+                        except Exception:
+                            pass
+                    if attempt > 1 and not media.get("error"):
+                        media["error"] = "retry"
+                    self.refresh_media_row(media)
+
+                    try:
+                        ok, err = DownloadManager.download_file(
+                            url,
+                            tmp_path,
+                            resume=True,
+                            on_progress=on_progress,
+                            should_stop=should_stop,
+                            window_id=self.window_id
+                        )
+
+                        if should_stop():
+                            media["status"] = "Paused"
+                            media["speed"] = "0 B/s"
+                            self.refresh_media_row(media)
+                            return
+
+                        if ok:
+                            try:
+                                os.rename(tmp_path, final_path)
+                            except Exception:
+                                pass
+                            try:
+                                media["local_size"] = os.path.getsize(final_path)
+                            except Exception:
+                                pass
+                            media["status"] = "Completed"
+                            media["percent"] = 100
+                            media["speed"] = "0 B/s"
+                            self.refresh_media_row(media, move_to_completed=True)
+                            self.save_json()
+                            return
+
+                        # ok == False → gestion spéciale range/416 si détecté
+                        if err and any(k in err.lower() for k in ("range", "range not satisfiable", "416")):
+                            try:
+                                if os.path.exists(tmp_path):
+                                    os.remove(tmp_path)  # repart propre
+                            except Exception:
+                                pass
+                            if attempt < max_retries:
+                                media["status"] = "Retrying"
+                                media["error"] = err
+                                self.refresh_media_row(media)
+                                time.sleep(delay)
+                                delay *= backoff
+                                attempt += 1
+                                continue
+
+                        # sinon logique transitoire générique
+                        if attempt < max_retries and is_transient_error(err or ""):
+                            media["status"] = "Retrying"
+                            media["error"] = (err or "retry")
+                            self.refresh_media_row(media)
+                            time.sleep(delay)
+                            delay *= backoff
+                            attempt += 1
+                            continue
+                        else:
+                            media["status"] = "Failed"
+                            media["error"] = err or "Téléchargement interrompu"
+                            media["speed"] = "0 B/s"
+                            self.refresh_media_row(media)
+                            return
+
+                    except Exception as e:
+                        msg = str(e)
+                        if attempt < max_retries and is_transient_error(msg):
+                            media["status"] = "Retrying"
+                            media["error"] = msg
+                            self.refresh_media_row(media)
+                            time.sleep(delay)
+                            delay *= backoff
+                            attempt += 1
+                            continue
+                        else:
+                            media["status"] = "Failed"
+                            media["error"] = msg
+                            media["speed"] = "0 B/s"
+                            self.refresh_media_row(media)
+                            return
+
+            finally:
+                # ✅ décrémente TOUJOURS & relance la queue si possible
+                self.decrement_running_downloads()
+                if not self.is_closing and self.is_active:
+                    self.start_next_in_queue()
+
 
     def start_next_in_queue(self):
-        log_info(f"[QUEUE] [Window {self.window_id}] Lancement de start_next_in_queue running_downloads={self.running_downloads}, queue_size={len(self.download_queue)}")
-        if self.is_closing or not self.is_active:
-            log_info(f"[QUEUE] [Window {self.window_id}] Fermeture active, start_next_in_queue() annulé")
+        log_info(
+            f"[QUEUE] [Window {self.window_id}] Lancement de start_next_in_queue running_downloads={self.running_downloads}, queue_size={len(self.download_queue)}")
+        if self.is_closing or not self.is_active or not self.queue_processor_running:
             return
 
         with queue_lock:
             log_info(f"[QUEUE] [Window {self.window_id}] Appel start_next_in_queue()")
-            log_info(f"[QUEUE] État : instance_downloads={self.running_downloads}, queue={len(self.download_queue)}")
+            log_info(f"[QUEUE] État : running_downloads={self.running_downloads}, queue={len(self.download_queue)}")
 
+            # Tant qu'il y a de la place dans le *pool* et des jobs en file, on pousse des jobs.
             while self.download_queue and self.running_downloads < MAX_CONCURRENT_DOWNLOADS:
                 media = self.download_queue.pop(0)
-
                 if not media:
-                    log_warning(f"[QUEUE] [Window {self.window_id}] ⚠️ Média None retiré de la queue → skip")
                     continue
 
-                status = media.get("status", "")
+                status = (media.get("status") or "").capitalize()
                 name = media.get("name", "Unknown")
-                if status in ["Completed", "Downloading", "Ignored"]:
-                    log_info(f"[QUEUE] [Window {self.window_id}] ⏩ {name} déjà en statut {status} → skip")
+                if status in ("Completed", "Downloading", "Ignored"):
+                    log_info(f"[QUEUE] [Window {self.window_id}] ⏩ {name} déjà {status} → skip")
                     continue
 
-                self.running_downloads += 1
-                log_info(f"[QUEUE] [Window {self.window_id}] ✅ Lancement de start_next_in_queue (instance_downloads={self.running_downloads})")
-                threading.Thread(target=self.download_file_thread, args=(media,), daemon=True).start()
+                # Envoi au pool : on incrémente *à l'exécution*, pas ici.
+                def job(m=media):
+                    if self.is_closing or not self.is_active:
+                        return
+                    with queue_lock:
+                        self.running_downloads += 1
+                    try:
+                        self.download_file_thread(m)
+                    finally:
+                        # download_file_thread fait déjà un decrement, mais on garde une cohérence au cas où
+                        pass
+
+                try:
+                    self.ctrl.enqueue(job)
+                except Exception as e:
+                    log_warning(f"[QUEUE] Enqueue pool a échoué ({name}) : {e}")
+                    # On remet l'item en tête si échec d’enqueue
+                    self.download_queue.insert(0, media)
+                    break  # on sort, le pool est peut-être en arrêt
 
             if not self.download_queue:
                 log_info(f"[QUEUE] [Window {self.window_id}] ✅ Plus rien dans la queue")
+
 
     def update_file_size(self, item_id, tree_type, subtab):
         tree = (self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
@@ -1983,12 +2620,16 @@ class MediaWindow:
             size = get_remote_file_size(media["url"])
             if size:
                 media["size_http"] = size
+                if self.is_closing or not self.check_ui_alive():
+                    return
                 self.refresh_media_row(media)
+
 
     def decrement_running_downloads(self):
         with queue_lock:
             self.running_downloads = max(0, self.running_downloads - 1)
-            log_info(f"[QUEUE] [Window {self.window_id}] ⬇️ instance_downloads décrémenté → {self.running_downloads}")
+            log_info(f"[QUEUE] [Window {self.window_id}] ⬇️ running_downloads → {self.running_downloads}")
+
 
     def repair_file(self, item_id, tree_type, subtab):
         tree = (self.video_not_downloaded_tree if tree_type == "video" and subtab == "not_downloaded" else
@@ -2018,6 +2659,7 @@ class MediaWindow:
         else:
             log_warning(f"[Repair] Fichier tmp absent : {tmp_path}")
 
+
     def change_download_directory(self):
         new_dir = filedialog.askdirectory(initialdir=self.local_dir)
         if new_dir:
@@ -2032,78 +2674,479 @@ class MediaWindow:
                 json.dump(self.global_settings, f, indent=4)
             log_info(f"[DIR] Changement de répertoire pour {self.profile_key} vers {new_dir}")
 
+
     def retry_failed_downloads_loop(self, interval_minutes=5):
+        # Single loop guard
+        if getattr(self, "_retry_loop_started", False):
+            return
+        self._retry_loop_started = True
+
+        # Stop event
+        if not hasattr(self, "_retry_stop"):
+            import threading
+            self._retry_stop = threading.Event()
+
+        import time
+
+        # Per-media meta: { key: {"attempts": int, "next_ts": float} }
+        if not hasattr(self, "_retry_meta"):
+            self._retry_meta = {}
+
+        def _media_key_for_retry(m):
+            try:
+                return self._media_key(m) or m.get("name") or id(m)
+            except Exception:
+                return m.get("name") or id(m)
+
+        def _eligible_failed_medias():
+            now = time.time()
+            out = []
+            for m in [x for x in self.medias if (x.get("status") == "Failed")]:
+                key = _media_key_for_retry(m)
+                meta = self._retry_meta.get(key, {})
+                attempts = int(meta.get("attempts", 0))
+                next_ts = float(meta.get("next_ts", 0))
+                if attempts >= int(MAX_FAILED_RETRIES):
+                    continue
+                if now >= next_ts:
+                    out.append((key, m, meta))
+            return out
+
+        def _schedule_next_retry(key, meta):
+            attempts = int(meta.get("attempts", 0)) + 1
+            meta["attempts"] = attempts
+            meta["next_ts"] = time.time() + float(RETRY_DELAY_SECONDS)
+            self._retry_meta[key] = meta
+
+        def _reset_retry_meta_on_success(m):
+            key = _media_key_for_retry(m)
+            if key in self._retry_meta:
+                self._retry_meta.pop(key, None)
+
+        def _retry_pass():
+            if self.is_closing or not self.is_active or not self.queue_processor_running:
+                return
+
+            candidates = _eligible_failed_medias()
+            if not candidates:
+                return
+
+            pushed = 0
+            # Push a small batch per pass to avoid spikes
+            for key, media, meta in candidates[:5]:
+                # If status changed meanwhile: reset meta
+                st = media.get("status")
+                if st in ("Completed", "Downloading", "Waiting", "Retrying", "Paused", "Ignored"):
+                    _reset_retry_meta_on_success(media)
+                    continue
+
+                # Prepare for requeue
+                media["status"] = "Waiting"
+                media["error"] = ""
+                media["speed"] = "0 B/s"
+                media["retry_count"] = int(media.get("retry_count", 0)) + 1
+                try:
+                    self.refresh_media_row(media)
+                except Exception:
+                    pass
+
+                # Enqueue
+                try:
+                    self.enqueue_media(media, override=True)
+                except Exception:
+                    continue
+
+                _schedule_next_retry(key, meta)
+                pushed += 1
+
+            if pushed:
+                try:
+                    self.start_next_in_queue()
+                except Exception:
+                    pass
+
         def loop():
-            while self.is_active and not self.is_closing:
-                self.retry_failed_downloads()
-                time.sleep(interval_minutes * 60)
-        threading.Thread(target=loop, daemon=True).start()
+            log_info("[RETRY] ♻️ Démarrage du retry_failed_downloads_loop (10s constant, 10 max)")
+            while not self._retry_stop.is_set():
+                try:
+                    _retry_pass()
+                except Exception as e:
+                    log_warning(f"[RETRY] Erreur dans la passe de retry: {e}")
+                # Sleep small ticks to react to stop event
+                woke = self._retry_stop.wait(float(RETRY_DELAY_SECONDS))
+                if woke:
+                    break
+            log_info("[RETRY] ⏹️ Arrêt du retry_failed_downloads_loop")
+
+        threading.Thread(target=loop, daemon=True, name="retry_failed_loop").start()
+
 
     def retry_failed_downloads(self):
-        failed_media = [m for m in self.medias if m.get("status") == "Failed"]
-        for media in failed_media:
-            if self.running_downloads < MAX_CONCURRENT_DOWNLOADS:
-                media["status"] = "Retrying"
-                self.refresh_media_row(media)
-                self.enqueue_media(media)
+        if self.is_closing or not self.is_active or not self.queue_processor_running:
+            return
+        for media in [m for m in self.medias if m.get("status") == "Failed"]:
+            media["status"] = "Waiting"
+            self.refresh_media_row(media)
+            self.enqueue_media(media, override=True)
+
 
     def start_queue_processor(self):
+        if getattr(self, "_queue_thread_started", False):
+            return
+        self._queue_thread_started = True
+
         def process_queue():
             while self.queue_processor_running and self.is_active and not self.is_closing:
                 if self.download_queue and self.running_downloads < MAX_CONCURRENT_DOWNLOADS:
                     self.start_next_in_queue()
                 time.sleep(0.1)
-        threading.Thread(target=process_queue, daemon=True).start()
 
-    def check_ui_alive(self):
-        return self.root.winfo_exists() and all(getattr(self, attr, None) and getattr(self, attr).winfo_exists()
-                                               for attr in ["video_not_downloaded_tree", "video_completed_tree",
-                                                            "image_not_downloaded_tree", "image_completed_tree"])
+        threading.Thread(target=process_queue, daemon=True, name=f"process_queue:{self.window_id[:4]}").start()
+
+
+    def check_ui_alive(self, target=None):
+        """
+        Vérifie si l'UI est prête et si les widgets demandés existent encore.
+        target peut être:
+          - None : vérifie juste la fenêtre
+          - un widget Tk
+          - un nom d'attribut (str)
+          - une liste/tuple de widgets et/ou noms d'attributs
+        """
+        # UI prête ?
+        if not getattr(self, "ui_ready", None) or not self.ui_ready.is_set():
+            log_warning(f"[TREEVIEW] [Window {self.window_id}] UI non prête, opération annulée")
+            return False
+
+        # Fenêtre vivante ?
+        if self.is_closing or not self.is_active:
+            log_warning(f"[TREEVIEW] [Window {self.window_id}] Fenêtre fermée/inactive, opération annulée")
+            return False
+
+        try:
+            if not (self.root and self.root.winfo_exists()):
+                log_warning(f"[TREEVIEW] [Window {self.window_id}] Root inexistant, opération annulée")
+                return False
+        except tk.TclError:
+            log_warning(f"[TREEVIEW] [Window {self.window_id}] Erreur accès root, opération annulée")
+            return False
+
+        # Normalise target en liste
+        if target is None:
+            return True
+        if not isinstance(target, (list, tuple)):
+            target = [target]
+
+        # Résout les noms -> widgets et vérifie winfo_exists
+        for t in target:
+            widget = t
+            if isinstance(t, str):
+                widget = getattr(self, t, None)
+
+            if widget is None:
+                log_warning(f"[TREEVIEW] [Window {self.window_id}] Widget '{t}' introuvable")
+                return False
+
+            try:
+                if not widget.winfo_exists():
+                    log_warning(f"[TREEVIEW] [Window {self.window_id}] Widget '{t}' détruit")
+                    return False
+            except tk.TclError:
+                log_warning(f"[TREEVIEW] [Window {self.window_id}] Widget '{t}' inaccessible")
+                return False
+
+        return True
+
 
     def save_json(self):
         with self.save_lock:
             try:
-                with open(self.json_path, "w", encoding="utf-8") as f:
+                # 🔒 s'assurer que medias_data pointe bien sur la liste courante
+                try:
+                    if self.medias_data.get("medias") is not self.medias:
+                        self.medias_data["medias"] = self.medias
+                except Exception:
+                    self.medias_data["medias"] = self.medias
+
+                # 💾 écriture avec flush + fsync pour garantir la persistance immédiate
+                tmp_path = self.json_path + ".tmp"
+                with open(tmp_path, "w", encoding="utf-8") as f:
                     json.dump(self.medias_data, f, indent=4)
+                    f.flush()
+                    os.fsync(f.fileno())
+
+                # swap atomique
+                try:
+                    os.replace(tmp_path, self.json_path)
+                except Exception:
+                    # fallback mac/win
+                    if os.path.exists(self.json_path):
+                        os.remove(self.json_path)
+                    os.rename(tmp_path, self.json_path)
+
                 log_info(f"[SAVE] [Window {self.window_id}] JSON sauvegardé à {self.json_path}")
+
+                # Notifie (best effort)
+                self._notify_profile_update()
+                try:
+                    event_bus.emit("profile:update", {
+                        "service": self.service,
+                        "username": self.username,
+                        "profile_key": self.profile_key
+                    })
+                except Exception as e:
+                    log_warning(f"[SAVE] emit profile:update failed: {e}")
             except Exception as e:
                 log_error(f"[SAVE] [Window {self.window_id}] Erreur sauvegarde JSON : {e}")
 
+
     def on_event_update(self, event_data):
+        if self._suppress_events or self._booting or self.is_closing:
+            return
         if event_data.get("profile_key") == self.profile_key:
             self.refresh_profile()
 
+        # ---- Batching Treeview inserts ----
+
+
+    def _prepare_row_values(self, media, tree):
+        """Construit les 'values' pour un media donné et le tree ciblé."""
+        name = media.get("name", "???")
+        downloaded = media.get("local_size", 0)
+        total = media.get("size_http", 0)
+        status = media.get("status", "Missing")
+        hash_check = media.get("hash_check", "")
+        ext = os.path.splitext(name)[1][1:].lower() or "unknown"
+        error = media.get("error", "")
+        url = media.get("url", "")
+        speed = media.get("speed", "0 B/s")
+        percent_val = int((downloaded / total) * 100) if total else 0
+        percent_str = render_progress_bar(percent_val)
+
+        if tree in [self.video_not_downloaded_tree, self.image_not_downloaded_tree]:
+            return (
+                name, format_bytes(downloaded), format_bytes(total),
+                speed, percent_str, status, hash_check, ext, error, url,
+                str(media.get("retry_count", 0))
+            )
+        else:
+            return (
+                name, format_bytes(downloaded), format_bytes(total),
+                percent_str, status, hash_check, ext, error, url,
+                str(media.get("retry_count", 0))
+            )
+
+
+    def _bulk_insert_start(self, tree_key, rows, chunk_size=200, delay_ms=1):
+        """
+        rows: liste de tuples (values, tags, cache_key)
+        On insère par paquets en utilisant after() pour ne pas bloquer l’UI.
+        """
+        if not hasattr(self, "_bulk_state"):
+            self._bulk_state = {}
+        self._bulk_state[tree_key] = {
+            "rows": rows,
+            "index": 0,
+            "chunk": chunk_size,
+            "delay": delay_ms,
+        }
+        self._bulk_insert_step(tree_key)
+
+
+    def _bulk_insert_step(self, tree_key):
+        st = self._bulk_state.get(tree_key)
+        if not st or self.is_closing or not self.check_ui_alive():
+            return
+        rows, idx, chunk = st["rows"], st["index"], st["chunk"]
+
+        # resolve tree
+        try:
+            tree = getattr(self, tree_key + "_tree")
+        except Exception:
+            return
+        if not tree.winfo_exists():
+            return
+
+        end = min(idx + chunk, len(rows))
+        for i in range(idx, end):
+            values, tags, cache_key = rows[i]
+            try:
+                item_id = tree.insert("", tk.END, values=values, tags=tags)
+                if cache_key:
+                    self.item_id_cache[cache_key] = item_id
+            except Exception as e:
+                log_warning(f"[BULK] insert fail on {tree_key} : {e}")
+
+        st["index"] = end
+
+        if end >= len(rows):
+            # terminé
+            self._bulk_state.pop(tree_key, None)
+            return
+        else:
+            # planifie le prochain paquet
+            self.schedule_after(st["delay"], lambda k=tree_key: self._bulk_insert_step(k))
+
+
+    def schedule_after(self, delay_ms, fn):
+        if self.is_closing or not self.root or not self.root.winfo_exists():
+            return None
+
+        def wrapper():
+            # Dès qu'on entre dans le callback, on le retire du registre
+            with self._after_lock:
+                self._after_ids.discard(aid)
+            if self.is_closing:
+                return
+            try:
+                fn()
+            except Exception as e:
+                log_warning(f"[AFTER] Callback error: {e}")
+
+        try:
+            aid = self.root.after(delay_ms, wrapper)
+            with self._after_lock:
+                self._after_ids.add(aid)
+            return aid
+        except Exception as e:
+            log_warning(f"[AFTER] schedule_after failed: {e}")
+            return None
+
+
+    def schedule_after_idle(self, fn):
+        if self.is_closing or not self.root or not self.root.winfo_exists():
+            return None
+
+        def wrapper():
+            with self._after_lock:
+                self._after_ids.discard(aid)
+            if self.is_closing:
+                return
+            try:
+                fn()
+            except Exception as e:
+                log_warning(f"[AFTER-IDLE] Callback error: {e}")
+
+        try:
+            aid = self.root.after_idle(wrapper)
+            with self._after_lock:
+                self._after_ids.add(aid)
+            return aid
+        except Exception as e:
+            log_warning(f"[AFTER-IDLE] schedule_after_idle failed: {e}")
+            return None
+
+
+    def _cancel_all_afters(self):
+        with self._after_lock:
+            ids = list(self._after_ids)
+            self._after_ids.clear()
+        for aid in ids:
+            try:
+                self.root.after_cancel(aid)
+            except Exception:
+                pass
+
+
     def monitor_queue(self):
+        # Empêche les multiples watchdogs
+        if getattr(self, "_watchdog_started", False):
+            return
+        self._watchdog_started = True
+
+        # Timestamps pour mesurer l'activité (MAJ dans enqueue/decrement si possible)
+        self._last_queue_activity = time.time()
+        self._last_watchdog_warn = 0.0
+
+        def _mark_activity():
+            self._last_queue_activity = time.time()
+
+        # Hook simples (si pas déjà faits ailleurs)
+        if not hasattr(self, "_orig_enqueue_media_for_watchdog"):
+            self._orig_enqueue_media_for_watchdog = getattr(self, "enqueue_media", None)
+
+            def _enqueue_media_wrapped(media, override=False):
+                try:
+                    _mark_activity()
+                finally:
+                    return self._orig_enqueue_media_for_watchdog(media, override=override)
+
+            if self._orig_enqueue_media_for_watchdog:
+                self.enqueue_media = _enqueue_media_wrapped
+
+        if not hasattr(self, "_orig_decrement_running_for_watchdog"):
+            self._orig_decrement_running_for_watchdog = getattr(self, "decrement_running_downloads", None)
+
+            def _decrement_running_wrapped():
+                try:
+                    _mark_activity()
+                finally:
+                    return self._orig_decrement_running_for_watchdog()
+
+            if self._orig_decrement_running_for_watchdog:
+                self.decrement_running_downloads = _decrement_running_wrapped
+
         def _monitor():
-            last_activity = time.time()
-            previous_count = 0
+            import random
             log_info(f"[MONITOR] 🧭 Démarrage du watchdog pour {self.username}")
 
-            while not self.is_closing and self.is_active and self.queue_processor_running:
-                time.sleep(10)
+            # Jitter initial (évite tempête si plusieurs fenêtres bootent ensemble)
+            self._monitor_stop.wait(random.uniform(0.5, 1.5))
 
-                with queue_lock:
-                    current_running = running_downloads
+            STALL_SECONDS = 30
+            SLEEP_SECONDS = 5  # cadence de check plus réactive mais non agressive
 
-                if current_running > 0:
-                    last_activity = time.time()
-                    previous_count = current_running
+            while (not self._monitor_stop.is_set()
+                   and not self.is_closing
+                   and self.is_active
+                   and self.queue_processor_running):
+
+                # Attente interruptible
+                if self._monitor_stop.wait(SLEEP_SECONDS):
+                    break
+                if self.is_closing or not self.is_active or not self.queue_processor_running:
+                    break
+
+                try:
+                    running = int(self.running_downloads)
+                    qsize = len(self.download_queue)
+                except Exception:
+                    # valeurs incohérentes : on repart au prochain tour
                     continue
 
-                elapsed = time.time() - last_activity
-                if elapsed > 30:  # bloqué depuis plus de 30 sec
-                    log_warning(f"[MONITOR] ⏰ {self.username} semble bloqué (inactif depuis {int(elapsed)}s)")
-                    self.start_next_in_queue()
-                    last_activity = time.time()
+                # Si ça tourne, on note l'activité et on continue
+                if running > 0:
+                    self._last_queue_activity = time.time()
+                    continue
+
+                # Rien ne tourne : seulement s'il reste des éléments en file
+                if qsize > 0:
+                    elapsed = time.time() - self._last_queue_activity
+                    if elapsed >= STALL_SECONDS:
+                        # Anti-spam logs: max un warning toutes 30s
+                        if time.time() - self._last_watchdog_warn >= STALL_SECONDS:
+                            log_warning(f"[MONITOR] ⏰ {self.username} semble bloqué "
+                                        f"(queue={qsize}, running=0, inactif {int(elapsed)}s) → relance")
+                            self._last_watchdog_warn = time.time()
+
+                        # Petite relance contrôlée
+                        try:
+                            self.start_next_in_queue()
+                            # petite sieste aléatoire pour éviter collisions inter-fenêtres
+                            self._monitor_stop.wait(random.uniform(0.2, 0.6))
+                        except Exception as e:
+                            log_warning(f"[MONITOR] Relance start_next_in_queue() a échoué: {e}")
+                else:
+                    # queue vide + rien ne tourne → RAS
+                    self._last_queue_activity = time.time()
 
             log_info(f"[MONITOR] 🛑 Watchdog terminé pour {self.username}")
 
-        monitor_thread = threading.Thread(target=_monitor, daemon=True)
-        monitor_thread.start()
+        threading.Thread(target=_monitor, daemon=True, name=f"watchdog:{self.window_id[:4]}").start()
+
 
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("Coomer Ultimate v1.0")
-    root.geometry("1200x700")  # Ajusté pour plus d'espace
     app = MediaWindow(root, "service", "username", "local_dir", "path/to/json", {"medias": []})
     root.mainloop()

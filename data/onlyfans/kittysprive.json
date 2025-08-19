@@ -9719,16 +9719,16 @@
       "url": "https://coomer.st/data/7e/62/7e62fecca5c9ac00e1f6135f811579961ff5e6dd6bb79d71558d64f421563a1b.mp4",
       "size_http": 1060189232,
       "cdn_checked": false,
-      "percent": 0,
+      "percent": 100,
       "downloaded": false,
       "retry_count": 2,
-      "error": "Thread timed out",
-      "status": "Failed",
+      "error": "",
+      "status": "Completed",
       "type": "video",
       "hash_check": "",
-      "local_size": 478142464,
+      "local_size": 1060189232,
       "speed": "0 B/s",
-      "last_downloaded": 432021504
+      "last_downloaded": 1060189232
     },
     {
       "id": "151422300",
